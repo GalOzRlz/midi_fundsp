@@ -6,7 +6,6 @@ use fundsp::prelude64::*;
 use std::collections::HashMap;
 
 use crate::effects_builders::EffectFunc;
-use crate::eqs::master_lowpass;
 
 pub fn to_net<F:AudioNode + 'static>(fx: An<F>) -> Net {
     Net::wrap(Box::new(fx))
@@ -45,30 +44,6 @@ fn cc_controlled_reverb(wet_amount: Net, reverb_time: f32, room_size: f32, dampi
     cc_controlled_wet_dry_fx(wet_amount, reverb)
 }
 
-pub fn prophet_lowpass_filter() -> Net {
-    Net::wrap(Box::new(
-    !butterpass() >> butterpass()))
-}
-
-pub fn master_highpass(cc_idx: usize, shared_midi_state: &SharedMidiState, q: f32) -> Net {
-    let cutoff_val = var(&shared_midi_state.control_change[cc_idx].clone()) >> cc_smooth();
-    let cutoff_hrz = product(constant(8_000.0), cutoff_val) >> cc_smooth();
-    Net::wrap(Box::new(
-        (pass() | cutoff_hrz >> follow(0.05_f32)) >> highpass_q(q),
-    ))
-}
-
-pub fn eq_2_mono(cc1: usize, cc2: usize, q: f32, shared_midi_state: &SharedMidiState) -> Net {
-    let hp = master_highpass(cc1, shared_midi_state, q);
-    let lp = master_lowpass(cc2, shared_midi_state, q);
-    pass() >> lp >> hp
-}
-
-pub fn eq_2_stereo(cc1: usize, cc2: usize, q: f32, shared_midi_state: &SharedMidiState) -> Net {
-    let hp = master_highpass(cc1, shared_midi_state, q);
-    let lp = master_lowpass(cc2, shared_midi_state, q);
-    multipass::<U2>() >> (lp.clone() | lp) >> (hp.clone() | hp)
-}
 
 pub fn tape_wow(depth: Net) -> Net {
     let wow_ms_range = 0.025;
@@ -113,9 +88,52 @@ fn fundsp_reverb_factory(params: &ReverbParams, cc_map: &HashMap<String, usize>)
 
 register_effect!(
     struct: Reverb,
-    name: "simple_reverb",
+    name: "reverb",
     factory: fundsp_reverb_factory,
     construction_params: [(room_size, 8.8), (damping, 0.5), (length, 2.8)],
     cc_params: [("wet_amount", 1, 0.5)]
 );
+
+pub fn master_lowpass(cc_idx: usize, shared_midi_state: &SharedMidiState, q: f32) -> Net {
+    let cutoff_val = var(&shared_midi_state.control_change[cc_idx].clone()) >> cc_smooth();
+    let cutoff_hrz = product(constant(20_000.0), cutoff_val) >> cc_smooth();
+    Net::wrap(Box::new(
+        (pass() | cutoff_hrz >> follow(0.05_f32)) >> moog_q(q),
+    ))
+}
+
+pub fn master_highpass(cc_idx: usize, shared_midi_state: &SharedMidiState, q: f32) -> Net {
+    let cutoff_val = var(&shared_midi_state.control_change[cc_idx].clone()) >> cc_smooth();
+    let cutoff_hrz = product(constant(8_000.0), cutoff_val) >> cc_smooth();
+    Net::wrap(Box::new(
+        (pass() | cutoff_hrz >> follow(0.05_f32)) >> highpass_q(q),
+    ))
+}
+
+pub fn eq_2(low_cut: usize, high_cut: usize, lp_q: f32,hp_q: f32, shared_midi_state: &SharedMidiState) -> Net {
+    let hp = master_highpass(low_cut, shared_midi_state, hp_q);
+    let lp = master_lowpass(high_cut, shared_midi_state, lp_q);
+    multipass::<U2>() >> (lp.clone() | lp) >> (hp.clone() | hp)
+}
+
+
+fn eq_2_factory(params: &Eq2Params, cc_map: &HashMap<String, usize>) -> EffectFunc {
+    let lp_q = params.lp_q;   // ← typed, compiler‑checked
+    let hp_q   = params.hp_q;
+    let low_cut    = *cc_map.get("low_cut_frequency").unwrap_or(&0);
+    let high_cut    = *cc_map.get("high_cut_frequency").unwrap_or(&0);
+    Box::new(move | state| {
+        eq_2(low_cut, high_cut, lp_q as f32 , hp_q as f32, state)
+    })
+}
+
+register_effect!(
+    struct: Eq2,
+    name: "eq2",
+    factory: eq_2_factory,
+    construction_params: [(lp_q, 3.5), (hp_q, 3.5)],
+    cc_params: [("low_cut_frequency", 3, 0.0), ("high_cut_frequency", 4, 1.0)]
+);
+
+// todo: add separate high and low as well - filter type selection with enum
 
