@@ -576,6 +576,7 @@ impl<const N: usize> VoiceManager<N> {
                 } => {
                     eprintln!("Control change from {:?} to {:?}", control, value);
                     let norm = *value as f32 / 127.0;
+                    eprintln!("{:?}", self.cc_to_knob);
                     if let Some(&(group, idx)) = self.cc_to_knob.get(control) {
                         match group {
                             KnobGroup::Sound => {
