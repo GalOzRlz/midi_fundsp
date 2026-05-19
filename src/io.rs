@@ -1,4 +1,5 @@
 use crate::config_builder::{CcValuesArray, FreeVoiceStrategy, GlobalConfig, VoiceStealingConfig};
+use crate::effects::{master_limiter, to_net};
 use crate::effects_builders::PatchFxChain;
 use crate::patch_builder::PatchDef;
 use crate::{
@@ -13,7 +14,7 @@ use cpal::{
 };
 use crossbeam_queue::SegQueue;
 use crossbeam_utils::atomic::AtomicCell;
-use fundsp::prelude::{multipass, U2};
+use fundsp::prelude::{multipass, shape, U2};
 use fundsp::prelude64::split;
 use fundsp::{net::Net, prelude::AudioUnit, prelude64::{shared, var}, shared::Shared, DEFAULT_SR};
 use midi_msg::ControlChange::CC;
@@ -21,7 +22,7 @@ use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, MidiMsg, SystemRealTime
 use midir::{Ignore, MidiInput, MidiInputPort};
 use read_input::{shortcut::input, InputBuild};
 use std::sync::{Arc, Mutex};
-use crate::effects::{master_limiter, to_net};
+use oximedia_effects::distortion::oversampler::DistortionKind::Tanh;
 
 #[derive(Clone, Debug)]
 /// Packages a [`MidiMsg`](https://crates.io/crates/midi-msg) with a designated `Speaker` to output the sound
@@ -350,13 +351,13 @@ trait DubleSpeaker<const N: usize> {
 
 /// The default player that has one stereo stream in and one out (U2 inputs, U2 outputs)
 struct StereoPlayer<const N: usize> {
-    center_source: SingleSourcePlayer<N>,
+    center_source: VoiceManager<N>,
 }
 
 impl<const N: usize> DubleSpeaker<N> for StereoPlayer<N> {
     fn new(patch_table: Arc<Mutex<PatchTable>>, config: GlobalConfig) -> Self {
         let center_source =
-            SingleSourcePlayer::<N>::new(patch_table.clone(), config);
+            VoiceManager::<N>::new(patch_table.clone(), config);
         Self { center_source }
     }
 
@@ -444,7 +445,7 @@ enum RelayedMessage {
 
 /// Single sound emitter that decodes midi and manages voices - used by StereoPlayer and LRPlayer to manage output.
 #[derive(Clone)]
-struct SingleSourcePlayer<const N: usize> {
+struct VoiceManager<const N: usize> {
     states: [SharedMidiState; N],
     next: ModNumC<usize, N>,
     pitch2state: [Option<usize>; NUM_MIDI_VALUES],
@@ -457,7 +458,7 @@ struct SingleSourcePlayer<const N: usize> {
     fx_net: Net,
 }
 
-impl<const N: usize> SingleSourcePlayer<N> {
+impl<const N: usize> VoiceManager<N> {
     fn new(patch_table: Arc<Mutex<PatchTable>>,
            config: GlobalConfig,
         ) -> Self {
@@ -525,9 +526,9 @@ impl<const N: usize> SingleSourcePlayer<N> {
                 let vol = var(&self.master_volume);
                 (sound * vol)
             }
-            _ => panic!("Unsupported output count on synth! use either U1 or U2"),
+            _ => panic!("Unsupported output count on synth! use either U1 (mono) or U2 (stereo)"),
         };
-        mix >> self.fx_net.clone()
+        mix >> master_limiter() >> self.fx_net.clone() // add normalizer?
     }
 
     fn decode(&mut self, msg: &MidiMsg) -> Option<RelayedMessage> {

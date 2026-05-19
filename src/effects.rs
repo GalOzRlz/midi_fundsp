@@ -71,7 +71,7 @@ register_effect!(
     name: "tape_drift",
     factory: tape_effect_factory,
     construction_params: [(blank, 0.0)],
-    cc_params: [("depth", 2, 0.4)]
+    cc_params: [("depth", 2, 0.42)]
 );
 
 
@@ -94,16 +94,16 @@ register_effect!(
     cc_params: [("wet_amount", 1, 0.5)]
 );
 
-pub fn master_lowpass(cc_idx: usize, shared_midi_state: &SharedMidiState, q: f32) -> Net {
-    let cutoff_val = var(&shared_midi_state.control_change[cc_idx].clone()) >> cc_smooth();
+pub fn master_lowpass(cc: usize, shared_midi_state: &SharedMidiState, q: f32) -> Net {
+    let cutoff_val = shared_midi_state.get_control_change(cc)>> cc_smooth();
     let cutoff_hrz = product(constant(20_000.0), cutoff_val) >> cc_smooth();
     Net::wrap(Box::new(
         (pass() | cutoff_hrz >> follow(0.05_f32)) >> moog_q(q),
     ))
 }
 
-pub fn master_highpass(cc_idx: usize, shared_midi_state: &SharedMidiState, q: f32) -> Net {
-    let cutoff_val = var(&shared_midi_state.control_change[cc_idx].clone()) >> cc_smooth();
+pub fn master_highpass(cc: usize, shared_midi_state: &SharedMidiState, q: f32) -> Net {
+    let cutoff_val = shared_midi_state.get_control_change(cc) >> cc_smooth();
     let cutoff_hrz = product(constant(8_000.0), cutoff_val) >> cc_smooth();
     Net::wrap(Box::new(
         (pass() | cutoff_hrz >> follow(0.05_f32)) >> highpass_q(q),
@@ -111,14 +111,14 @@ pub fn master_highpass(cc_idx: usize, shared_midi_state: &SharedMidiState, q: f3
 }
 
 pub fn eq_2(low_cut: usize, high_cut: usize, lp_q: f32,hp_q: f32, shared_midi_state: &SharedMidiState) -> Net {
-    let hp = master_highpass(low_cut, shared_midi_state, hp_q);
-    let lp = master_lowpass(high_cut, shared_midi_state, lp_q);
+    let hp = master_highpass(low_cut, shared_midi_state, hp_q.clamp(0.0, 1.3));
+    let lp = master_lowpass(high_cut, shared_midi_state, lp_q.clamp(0.0, 1.3));
     multipass::<U2>() >> (lp.clone() | lp) >> (hp.clone() | hp)
 }
 
 
 fn eq_2_factory(params: &Eq2Params, cc_map: &HashMap<String, usize>) -> EffectFunc {
-    let lp_q = params.lp_q;   // ← typed, compiler‑checked
+    let lp_q = params.lp_q;
     let hp_q   = params.hp_q;
     let low_cut    = *cc_map.get("low_cut_frequency").unwrap_or(&0);
     let high_cut    = *cc_map.get("high_cut_frequency").unwrap_or(&0);
@@ -131,7 +131,7 @@ register_effect!(
     struct: Eq2,
     name: "eq2",
     factory: eq_2_factory,
-    construction_params: [(lp_q, 3.5), (hp_q, 3.5)],
+    construction_params: [(lp_q, 0.1), (hp_q, 0.4)],
     cc_params: [("low_cut_frequency", 3, 0.0), ("high_cut_frequency", 4, 1.0)]
 );
 

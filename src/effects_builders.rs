@@ -74,7 +74,7 @@ pub struct EffectDef {
     pub factory: EffectFactory,
     pub construction_defaults: &'static [(&'static str, f64)],
     /// (param_name, default_knob, default_value)
-    pub cc_params: &'static [(&'static str, usize, f64)],
+    pub cc_params: &'static [(&'static str, usize, f32)],
 }
 
 inventory::collect!(EffectDef);
@@ -153,7 +153,7 @@ impl PatchFxChain {
                         .and_then(|v| v.as_table())
                         .and_then(|t| t.get(*param_name))
                         .and_then(|v| v.as_float())
-                        .unwrap_or(*default_val);
+                        .unwrap_or(*default_val as f64);
 
                     initial_cc[knob - 1] = init_val as f32;
                     knob_labels.push((knob, format!("{}: {}", eff_name, param_name)));

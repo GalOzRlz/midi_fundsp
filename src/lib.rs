@@ -51,11 +51,12 @@ use std::time::{Duration, Instant};
 use fundsp::math::midi_hz;
 use fundsp::net::Net;
 use fundsp::prelude::{An, AudioUnit, FrameMul};
-use fundsp::prelude64::{shared, var};
+use fundsp::prelude64::{adsr_live, shared, var};
 use fundsp::shared::{Shared, Var};
 use midi_msg::ControlChange::CC;
 use midi_msg::MidiMsg;
 use crate::effects::to_net;
+use crate::patch_helpers::Adsr;
 
 /// MIDI values for pitch and velocity range from 0 to 127.
 pub const MAX_MIDI_VALUE: u8 = 127;
@@ -86,6 +87,7 @@ pub struct SharedMidiState {
     midi_to_hz: fn(f32) -> f32,
     control_change: [Shared; 128],
     cc_mapping: CcMapping,
+    adsr: Adsr
 }
 
 impl Default for  SharedMidiState {
@@ -98,6 +100,7 @@ impl Default for  SharedMidiState {
             midi_to_hz: midi_hz,
             control_change: core::array::from_fn(|_| Shared::new(0.0)),
             cc_mapping: Default::default(),
+            adsr: Default::default(),
         }
     }
 }
@@ -123,6 +126,13 @@ impl SharedMidiState {
         s.set_ccs(cc_mapping, cc_array)
     }
 
+
+    /// Returns n ADSR filter in a `Box`.
+    pub fn boxed_adsr(&self) -> Box<dyn AudioUnit> {
+        let control = self.control_var();
+        Box::new(control >> adsr_live(self.adsr.attack.value(), self.adsr.decay.value(), self.adsr.sustain.value(), self.adsr.release.value()))
+    }
+    
     pub fn set_ccs(self, cc_mapping: CcMapping, cc_array: CcValuesArray) -> Self {
         for (cc_num, start_val) in cc_mapping
             .into_iter()

@@ -7,12 +7,13 @@ use fundsp::math::midi_hz;
 use fundsp::prelude64::AudioUnit;
 use crate::effects_builders::{EffectDef, PatchFxChain};
 use crate::{SharedMidiState, SynthFunc};
+use crate::effects::master_limiter;
 use crate::tunings::{TunerBuilder, TunerEntry};
 
-pub const ENCODER_COUNT: usize = 4;
+pub const ENCODER_COUNT: usize = 8;
 // todo: refactor sound control vs. effects control
-pub const DEFAULT_CC_VALS: CcValuesArray = [0.0, 0.0, 0.0, 1.0];
-pub const DEFAULT_CC_MAPPING: CcMapping = [74, 71, 76, 77];
+pub const DEFAULT_CC_VALS: CcValuesArray = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0,1.0, 1.0];
+pub const DEFAULT_CC_MAPPING: CcMapping = [74, 71, 76, 77, 0, 0, 0, 0];
 pub type CcValuesArray = [f32; ENCODER_COUNT];
 pub type CcMapping = [usize; ENCODER_COUNT];
 
