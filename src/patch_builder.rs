@@ -46,7 +46,7 @@ macro_rules! register_sound {
         cc_params: [ $( ($cc_name:expr, $cc_default_knob:expr, $cc_default_val:expr) ),* $(,)? ]
     ) => {
         paste::paste! {
-            // ----- generated params struct (unchanged) -----
+            // ----- params struct (unchanged) -----
             pub struct [<$name:camel Params>] {
                 $( pub $c_name: f64, )*
             }
@@ -63,20 +63,17 @@ macro_rules! register_sound {
                 }
             }
 
-            // ----- wrapper now matches SoundBuilder signature -----
+            // ----- wrapper – now calls factory with state -----
             fn [<__sound_wrapper_ $name:snake>] (
                 state: &$crate::SharedMidiState,
                 construction: &toml::Table,
                 cc_map: &CcMap,
             ) -> Box<dyn fundsp::prelude64::AudioUnit> {
                 let params = [<$name:camel Params>]::from_table(construction);
-                // Call the user’s factory, which returns a SynthFunc,
-                // then immediately invoke that closure with the state.
-                let synth_func = $factory_fn(&params, cc_map);
-                synth_func(state)
+                $factory_fn(&params, cc_map, state)
             }
 
-            // ----- inventory submission (correct cast now) -----
+            // ----- inventory submission (unchanged) -----
             inventory::submit! {
                 $crate::patch_builder::SoundEntry {
                     name: $name,
