@@ -23,5 +23,5 @@ register_sound!(
     name: "Square_saw_soft",    // display name & base for struct name
     factory: saw_to_square,
     construction_params: [(blank, 0.8)], // parameter name + default value
-    cc_params: [("balance", 1, 0.5)]   // CC param: name, default knob index, default value
+    cc_params: [("balance", 1)]   // CC param: name, default knob index, default value
 );

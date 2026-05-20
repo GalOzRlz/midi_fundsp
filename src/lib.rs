@@ -42,14 +42,16 @@ pub mod patch_builder;
 mod patch_helpers;
 pub mod sounds;
 pub mod tunings;
+mod backend;
 
+use std::collections::HashMap;
 use crate::config_builder::MAX_KNOBS_PER_GROUP;
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::effects::to_net;
-use crate::patch_builder::KnobGroup;
+use crate::patch_builder::{CcMap, KnobGroup, SoundBuilder};
 use crate::patch_helpers::Adsr;
 use fundsp::math::midi_hz;
 use fundsp::net::Net;
@@ -72,7 +74,22 @@ pub const CONTROL_ON: f32 = 1.0;
 pub const CONTROL_OFF: f32 = -1.0;
 
 /// `SynthFunc` objects translate `SharedMidiState` values into [fundsp](https://crates.io/crates/fundsp) audio graphs.
-pub type SynthFunc = Arc<dyn Fn(&SharedMidiState) -> Box<dyn AudioUnit> + Send + Sync>;
+pub type SynthFunc = Arc<dyn Fn(&SharedMidiState) -> Box<dyn AudioUnit> + Send + Sync >;
+#[derive(Clone)]
+struct SynthFactory {
+    builder: SoundBuilder,
+    config: toml::Table,
+}
+
+impl SynthFactory {
+    pub fn build(&self) -> SynthFunc {
+        let function = self.builder.clone();
+        let config = self.config.clone();
+        Arc::new(move |state: &SharedMidiState| -> Box<dyn AudioUnit> {
+            function(state, &config)
+        })
+    }
+}
 
 /// `SharedMidiState` objects represent as [fundsp `Shared` atomic variables](https://docs.rs/fundsp/latest/fundsp/shared/struct.Shared.html)
 /// the following MIDI events:

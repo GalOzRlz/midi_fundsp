@@ -1,12 +1,13 @@
-use crate::SharedMidiState;
+use crate::{SharedMidiState, SynthFactory};
 use crate::SynthFunc;
-use crate::effects_builders::{EffectDef, PatchFxChain};
+use crate::effects_builders::{EffectDef, FxChainFactory};
 use crate::patch_builder::{KnobGroup, KnobLabel, PatchDef, PatchTable, SoundBuilder, SoundEntry};
 use crate::tunings::{TunerBuilder, TunerEntry};
 use fundsp::math::midi_hz;
 use fundsp::prelude64::AudioUnit;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
+use std::iter::chain;
 use std::sync::Arc;
 
 // ---------- dynamic knob sizing ----------
@@ -113,7 +114,7 @@ pub struct TomlPatchDef {
     pub effects: Option<TomlEffectSection>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct TomlEffectSection {
     pub chain: Vec<String>,
     #[serde(flatten)]
@@ -173,14 +174,19 @@ pub fn load_all_programs(paths: &[&str]) -> Vec<TomlPatchDef> {
 }
 
 // ---------- build the PatchTable ----------
-pub fn build_patch_table(programs: &[TomlPatchDef], global_config: &GlobalConfig) -> PatchTable {
+pub fn build_patch_table(
+    programs: &[TomlPatchDef],
+    global_config: &GlobalConfig,
+) -> PatchTable {
     // ---- build lookup maps ----
     let sound_map: HashMap<&str, SoundBuilder> = inventory::iter::<SoundEntry>()
         .map(|e| (e.name, e.builder))
         .collect();
+
     let effect_map: HashMap<&str, &EffectDef> = inventory::iter::<EffectDef>()
         .map(|e| (e.name, e))
         .collect();
+
     let tuner_map: HashMap<&str, TunerBuilder> = inventory::iter::<TunerEntry>()
         .map(|e| (e.name, e.tuner))
         .collect();
@@ -217,32 +223,26 @@ pub fn build_patch_table(programs: &[TomlPatchDef], global_config: &GlobalConfig
         };
 
         // --- build effect chain ---
-        let fx_chain = PatchFxChain::new(prog.effects.as_ref(), &effect_map, effect_knob_count);
+        let fx_chain = FxChainFactory::new(
+            prog.effects.as_ref(),
+            effect_knob_count,
+        );
 
         // voice config (empty table if none)
         let voice_config = prog.config.clone().unwrap_or_else(toml::Table::new);
 
-        // clone chain for the closure (Arc will be shared later)
-        let fx_chain_clone = fx_chain.clone();
-
-        // --- SynthFunc closure ---
-        // The voice builder now requires (state, &Table, &HashMap).
-        // For now, pass an empty cc_map for the voice; sound CCs will be integrated later.
-        let synth_func: SynthFunc =
-            Arc::new(move |state: &SharedMidiState| -> Box<dyn AudioUnit> {
-                let empty_cc = HashMap::new();
-                voice_builder(state, &voice_config.clone(), &empty_cc)
-            });
-
         // --- knob labels from effects ---
-        let mut knob_labels: Vec<KnobLabel> = fx_chain.knob_labels.clone();
+        let knob_labels: Vec<KnobLabel> = fx_chain.knob_labels.clone();
 
         // --- assemble PatchDef ---
         let patch_def = PatchDef {
-            function: synth_func,
+            sound_factory: SynthFactory {
+                builder: voice_builder,
+                config: voice_config,
+            },
             name: prog.name.clone(),
-            tuning: tuner,
-            effects: fx_chain, // original, not the clone
+            tuning,
+            effects: fx_chain,
             knob_labels,
         };
 
@@ -251,11 +251,10 @@ pub fn build_patch_table(programs: &[TomlPatchDef], global_config: &GlobalConfig
 
     PatchTable::new(patch_defs)
 }
-
 // ---------- ordering ----------
 fn reorder_by_names(entries: &mut Vec<PatchDef>, order: &[String]) {
     let old_entries = std::mem::take(entries);
-    let mut indexed: Vec<(usize, PatchDef)> = old_entries.into_iter().enumerate().collect();
+    let indexed: Vec<(usize, PatchDef)> = old_entries.into_iter().enumerate().collect();
     let mut name_to_entry: HashMap<String, (usize, PatchDef)> = HashMap::new();
     for (idx, entry) in indexed {
         name_to_entry.insert(entry.name.clone(), (idx, entry));

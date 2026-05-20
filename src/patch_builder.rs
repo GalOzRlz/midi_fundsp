@@ -1,12 +1,38 @@
-use crate::SharedMidiState;
+use crate::{SharedMidiState, SynthFactory};
 use crate::SynthFunc;
-use crate::effects_builders::PatchFxChain;
+use crate::effects_builders::{FxChainFactory};
 use crate::tunings::TunerBuilder;
 use fundsp::prelude::{AudioUnit, U2, multipass};
 use inventory;
 use std::collections::HashMap;
 use std::sync::Arc;
 use toml;
+use toml::Table;
+
+#[derive(Debug, Clone)]
+pub enum ParamType {
+    Float,
+    Int,
+    String,
+}
+
+#[derive(Debug, Clone)]
+pub enum ParamDefault {
+    Float(f64),
+    Int(i64),
+    String(&'static str),
+}
+
+#[derive(Debug, Clone)]
+pub struct ParamInfo {
+    pub name: &'static str,
+    pub param_type: ParamType,
+    pub default: ParamDefault,
+}
+pub trait SoundParams: Sized {
+    fn from_table(table: &Table) -> Self;
+    fn param_info() -> &'static [ParamInfo];
+}
 
 pub type CcMap = HashMap<String, usize>;
 // ---- Knob labels (shared with effects_builders) ----
@@ -24,16 +50,20 @@ pub struct KnobLabel {
 }
 
 // ---- Sound builder signature ----
-pub type SoundBuilder =
-    fn(state: &SharedMidiState, config: &toml::Table, cc_map: &CcMap) -> Box<dyn AudioUnit>;
+pub type SoundBuilder = fn(
+    state: &SharedMidiState,
+    config: &toml::Table,
+    cc_map: &HashMap<String, usize>,   // built from registration only
+) -> Box<dyn AudioUnit>;
 
 // ---- Sound registry ----
 pub struct SoundEntry {
     pub name: &'static str,
     pub builder: SoundBuilder,
-    pub construction_defaults: &'static [(&'static str, f64)],
-    pub cc_params: &'static [(&'static str, usize, f64)],
+    pub param_info: fn() -> &'static [ParamInfo],
+    pub cc_params: &'static [(&'static str, usize)],
 }
+
 inventory::collect!(SoundEntry);
 
 // ---- Registration macro (name: only) ----
@@ -41,46 +71,22 @@ inventory::collect!(SoundEntry);
 macro_rules! register_sound {
     (
         name: $name:expr,
+        params: $params_type:ty,
         factory: $factory_fn:ident,
-        construction_params: [ $( ($c_name:ident, $c_default:expr) ),* $(,)? ],
-        cc_params: [ $( ($cc_name:expr, $cc_default_knob:expr, $cc_default_val:expr) ),* $(,)? ]
+        cc_params: [ $( ($cc_name:expr, $cc_default_knob:expr) ),* $(,)? ]
     ) => {
-        paste::paste! {
-            // ----- params struct (unchanged) -----
-            pub struct [<$name:camel Params>] {
-                $( pub $c_name: f64, )*
-            }
-
-            impl [<$name:camel Params>] {
-                fn from_table(table: &toml::Table) -> Self {
-                    Self {
-                        $(
-                            $c_name: table.get(stringify!($c_name))
-                                .and_then(|v| v.as_float())
-                                .unwrap_or($c_default),
-                        )*
-                    }
-                }
-            }
-
-            // ----- wrapper – now calls factory with state -----
-            fn [<__sound_wrapper_ $name:snake>] (
-                state: &$crate::SharedMidiState,
-                construction: &toml::Table,
-                cc_map: &CcMap,
-            ) -> Box<dyn fundsp::prelude64::AudioUnit> {
-                let params = [<$name:camel Params>]::from_table(construction);
-                $factory_fn(&params, cc_map, state)
-            }
-
-            // ----- inventory submission (unchanged) -----
-            inventory::submit! {
-                $crate::patch_builder::SoundEntry {
-                    name: $name,
-                    builder: [<__sound_wrapper_ $name:snake>] as $crate::patch_builder::SoundBuilder,
-                    construction_defaults: &[ $( (stringify!($c_name), $c_default) ),* ],
-                    cc_params: &[ $( ($cc_name, $cc_default_knob, $cc_default_val) ),* ],
-                }
+        inventory::submit! {
+            $crate::patch_builder::SoundEntry {
+                name: $name,
+                builder: (|state: &$crate::SharedMidiState,
+                           config: &toml::Table,
+                           cc_map: &std::collections::HashMap<String, usize>|
+                 -> Box<dyn fundsp::prelude64::AudioUnit> {
+                    let params = <$params_type as $crate::sound_registry::SoundParams>::from_table(config);
+                    $factory_fn(state, &params, cc_map)
+                }) as $crate::patch_builder::SoundBuilder,
+                param_info: <$params_type as $crate::sound_registry::SoundParams>::param_info as fn() -> &'static [$crate::sound_registry::ParamInfo],
+                cc_params: &[ $( ($cc_name, $cc_default_knob) ),* ],
             }
         }
     };
@@ -89,14 +95,14 @@ macro_rules! register_sound {
 // ---- PatchDef ----
 #[derive(Clone)]
 pub struct PatchDef {
-    pub function: SynthFunc,
+    pub sound_factory: SynthFactory,
     pub name: String,
     pub tuning: TunerBuilder,
-    pub effects: PatchFxChain,
-    pub knob_labels: Vec<KnobLabel>,
+    pub effects: FxChainFactory,
+    pub sound_cc_map: HashMap<String, usize>,
+    pub initial_cc: Vec<f32>,
+    pub knob_labels: Vec<KnobLabel>,       // includes both effect and sound labels
 }
-
-pub type PatchTableItem = PatchDef;
 
 // ---- PatchTable ----
 pub const NUM_PATCH_SLOTS: usize = 2_usize.pow(7);

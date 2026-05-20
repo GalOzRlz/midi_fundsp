@@ -1,6 +1,6 @@
 use crate::config_builder::{FreeVoiceStrategy, GlobalConfig, VoiceStealingConfig};
 use crate::effects::master_limiter;
-use crate::effects_builders::PatchFxChain;
+use crate::effects_builders::FxChainFactory;
 use crate::patch_builder::KnobGroup;
 use crate::{
     note_velocity_from, patch_builder::PatchTable, SharedMidiState, SynthFunc, NUM_MIDI_VALUES,
@@ -458,7 +458,7 @@ struct VoiceManager<const N: usize> {
     master_volume: Shared,
     patch_table: Arc<PatchTable>,
     config: GlobalConfig,
-    effects: PatchFxChain,
+    effects: FxChainFactory,
     current_patch_num: usize,
     sound_knobs: Vec<f32>,
     effect_knobs: Vec<f32>,
@@ -479,9 +479,10 @@ impl<const N: usize> VoiceManager<N> {
         let sound_len = config.sound_knob_ccs.len().max(1);
         let effect_len = config.effect_knob_ccs.len().max(1);
 
-        let first_table = &patch_table.clone().entries[0]; // no .lock().unwrap()
-        let synth_func = first_table.function.clone();
+        let first_table = &patch_table.clone().entries[0];
+        let synth_func = first_table.sound_factory.build();
         let cc_array = first_table.effects.initial_cc.clone();
+        let sound_array = first_table.initial_cc.clone();
         let tuner = first_table.tuning;
 
         let states = [(); N].map(|_| {
@@ -509,7 +510,7 @@ impl<const N: usize> VoiceManager<N> {
             current_patch_num: 0,
         };
         s.set_midi_to_hz(tuner);
-        s.effects.assemble_net(&s.states[0]);
+        s.effects.build(&s.states[0]);
         s
     }
 
@@ -684,11 +685,11 @@ impl<const N: usize> VoiceManager<N> {
     fn change_patch(&mut self, program: &u8) {
         let table = self.patch_table.clone();
         if let Some(entry) = table.entries.get(*program as usize) {
-            self.synth_func = entry.function.clone();
+            self.synth_func = entry.sound_factory.build();
             self.effects = entry.effects.clone();
             let tuner = entry.tuning;
             self.set_midi_to_hz(tuner);
-            self.effects.assemble_net(&self.states[0]);
+            self.effects.build(&self.states[0]);
             self.current_patch_num = *program as usize;
             // Re-initialize knob values from the new program's initial_cc if desired.
             for (i, &val) in self.effects.initial_cc.iter().enumerate() {
