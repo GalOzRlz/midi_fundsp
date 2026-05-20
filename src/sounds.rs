@@ -50,9 +50,9 @@
 // register_sound!("chorused_dirty_guitar", chorused_dirty_guitar);
 // register_sound!("plastic_pipe", plastic_pipe);
 
+use crate::patch_builder::{ParamDefault, ParamInfo, ParamType, SoundEntry, SoundParams};
 use crate::SoundBuilder;
-use crate::patch_builder::{CcMap, ParamDefault, ParamInfo, ParamType, SoundEntry, SoundParams};
-use crate::{SharedMidiState, SynthFunc, register_sound};
+use crate::{register_sound, SharedMidiState};
 use fundsp::audiounit::AudioUnit;
 use fundsp::prelude64::*;
 use toml::Table;
@@ -61,7 +61,7 @@ pub enum OscillatorType {
     Saw,
     Triangle,
     Sine,
-    Pulse,   // duty cycle 0.0..1.0, 0.5 = square
+    Pulse,   // todo: add Pulse Width
     Square,
     None,
 }

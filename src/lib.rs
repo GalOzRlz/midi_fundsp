@@ -74,7 +74,7 @@ pub const CONTROL_OFF: f32 = -1.0;
 /// `SynthFunc` objects translate `SharedMidiState` values into [fundsp](https://crates.io/crates/fundsp) audio graphs.
 pub type SynthFunc = Arc<dyn Fn(&SharedMidiState) -> Box<dyn AudioUnit> + Send + Sync >;
 #[derive(Clone)]
-struct SynthFactory {
+pub struct SynthFactory {
     pub builder: SoundBuilder,
     pub config: toml::Table,
 }
@@ -141,15 +141,15 @@ impl Debug for SharedMidiState {
 
 impl SharedMidiState {
     pub fn new(
-        sound_knob_ccs: &[u8],
-        effect_knob_ccs: &[u8],
+        sound_cc_mapping: &[u8],
+        fx_cc_mapping: &[u8],
         sound_init: &[f32],
         effect_init: &[f32],
         tuner:  TunerBuilder,
     ) -> Self {
         let mut s = Self::default();
-        s.sound_knob_count = sound_knob_ccs.len().min(MAX_KNOBS_PER_GROUP);
-        s.effect_knob_count = effect_knob_ccs.len().min(MAX_KNOBS_PER_GROUP);
+        s.sound_knob_count = sound_cc_mapping.len().min(MAX_KNOBS_PER_GROUP);
+        s.effect_knob_count = fx_cc_mapping.len().min(MAX_KNOBS_PER_GROUP);
         for i in 0..s.sound_knob_count {
             let val = sound_init.get(i).copied().unwrap_or(0.0);
             s.sound_knobs[i].set_value(val);
@@ -158,6 +158,7 @@ impl SharedMidiState {
             let val = effect_init.get(i).copied().unwrap_or(0.0);
             s.effect_knobs[i].set_value(val);
         }
+        s.set_midi_to_hz(tuner);
         s
     }
 

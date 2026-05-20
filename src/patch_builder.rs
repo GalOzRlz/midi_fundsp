@@ -1,8 +1,7 @@
-use crate::{SharedMidiState, SynthFactory};
-use crate::SynthFunc;
-use crate::effects_builders::{FxChainFactory};
+use crate::effects_builders::FxChainFactory;
 use crate::tunings::TunerBuilder;
-use fundsp::prelude::{AudioUnit, U2, multipass};
+use crate::{SharedMidiState, SynthFactory};
+use fundsp::prelude::AudioUnit;
 use inventory;
 use std::collections::HashMap;
 use toml;

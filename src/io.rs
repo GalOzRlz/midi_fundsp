@@ -470,15 +470,15 @@ impl<const N: usize> VoiceManager<N> {
     fn new(patch_table: Arc<PatchTable>, config: GlobalConfig) -> Self {
         // Build CC → knob mapping
         let mut cc_to_knob = HashMap::new();
-        for (i, &cc) in config.sound_knob_ccs.iter().enumerate() {
+        for (i, &cc) in config.sound_cc_mapping.iter().enumerate() {
             cc_to_knob.insert(cc, (KnobGroup::Sound, i));
         }
-        for (i, &cc) in config.effect_knob_ccs.iter().enumerate() {
+        for (i, &cc) in config.fx_cc_mapping.iter().enumerate() {
             cc_to_knob.insert(cc, (KnobGroup::Effect, i));
         }
 
-        let sound_len = config.sound_knob_ccs.len().max(1);
-        let effect_len = config.effect_knob_ccs.len().max(1);
+        let sound_len = config.sound_cc_mapping.len().max(1);
+        let effect_len = config.fx_cc_mapping.len().max(1);
 
         let first_table = &patch_table.clone().entries[0];
         let synth_func = first_table.sound_factory.build();
@@ -488,8 +488,8 @@ impl<const N: usize> VoiceManager<N> {
 
         let states = [(); N].map(|_| {
             SharedMidiState::new(
-                &config.sound_knob_ccs,
-                &config.effect_knob_ccs,
+                &config.sound_cc_mapping,
+                &config.fx_cc_mapping,
                 &sound_acc_array,
                 &fx_cc_array,
                 tuner
@@ -578,7 +578,6 @@ impl<const N: usize> VoiceManager<N> {
                 } => {
                     eprintln!("Control change from {:?} to {:?}", control, value);
                     let norm = *value as f32 / 127.0;
-                    eprintln!("{:?}", self.cc_to_knob);
                     if let Some(&(group, idx)) = self.cc_to_knob.get(control) {
                         match group {
                             KnobGroup::Sound => {
@@ -596,8 +595,9 @@ impl<const N: usize> VoiceManager<N> {
                         }
                         // Print labels
                         if let Some(prog) =
-                            self.patch_table.clone().entries.get(self.current_patch_num as usize)
+                            self.patch_table.clone().entries.get(self.current_patch_num)
                         {
+                            println!("patch table: {:?}", prog.knob_labels);
                             for lbl in &prog.knob_labels {
                                 if lbl.group == group && lbl.index == idx + 1 {
                                     eprintln!("Knob {} {}: {}", idx + 1, lbl.label, value);

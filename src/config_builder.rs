@@ -1,14 +1,10 @@
-use crate::{SharedMidiState, SynthFactory};
-use crate::SynthFunc;
 use crate::effects_builders::{EffectDef, FxChainFactory};
-use crate::patch_builder::{KnobGroup, KnobLabel, PatchDef, PatchTable, SoundBuilder, SoundEntry};
+use crate::patch_builder::{KnobLabel, PatchDef, PatchTable, SoundBuilder, SoundEntry};
 use crate::tunings::{TunerBuilder, TunerEntry};
+use crate::SynthFactory;
 use fundsp::math::midi_hz;
-use fundsp::prelude64::AudioUnit;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
-use std::iter::chain;
-use std::sync::Arc;
 
 // ---------- dynamic knob sizing ----------
 pub const MAX_KNOBS_PER_GROUP: usize = 16;
@@ -41,8 +37,8 @@ pub struct GlobalConfig {
     pub voice_stealing: VoiceStealingConfig,
     pub voice_release: FreeVoiceStrategy,
 
-    pub sound_knob_ccs: Vec<u8>,
-    pub effect_knob_ccs: Vec<u8>,
+    pub sound_cc_mapping: Vec<u8>,
+    pub fx_cc_mapping: Vec<u8>,
 }
 
 impl Default for GlobalConfig {
@@ -50,8 +46,8 @@ impl Default for GlobalConfig {
         Self {
             voice_stealing: VoiceStealingConfig::LegatoLast,
             voice_release: FreeVoiceStrategy::ReleaseOnZero,
-            sound_knob_ccs: default_sound_knobs(),
-            effect_knob_ccs: default_effect_knobs(),
+            sound_cc_mapping: default_sound_knobs(),
+            fx_cc_mapping: default_effect_knobs(),
         }
     }
 }
@@ -66,16 +62,16 @@ struct GlobalConfigToml {
 #[derive(Deserialize, Default)]
 struct GlobalSection {
     #[serde(default)]
-    sound_knob_ccs: Option<Vec<u8>>,
+    sound_cc_mapping: Option<Vec<u8>>,
 
     #[serde(default)]
-    effect_knob_ccs: Option<Vec<u8>>,
+    fx_cc_mapping: Option<Vec<u8>>,
 
     #[serde(default)]
-    voice_stealing: Option<VoiceStealingConfig>,
+    synth_stealing: Option<VoiceStealingConfig>,
 
     #[serde(default)]
-    voice_release: Option<FreeVoiceStrategy>,
+    synth_release: Option<FreeVoiceStrategy>,
 }
 
 pub fn load_global_config(path: &str) -> GlobalConfig {
@@ -84,13 +80,16 @@ pub fn load_global_config(path: &str) -> GlobalConfig {
     match std::fs::read_to_string(path) {
         Ok(text) => match toml::from_str::<GlobalConfigToml>(&text) {
             Ok(cfg) => GlobalConfig {
-                sound_knob_ccs: cfg.global.sound_knob_ccs.unwrap_or(defaults.sound_knob_ccs),
-                effect_knob_ccs: cfg
+                sound_cc_mapping: cfg
+                    .global.
+                    sound_cc_mapping
+                    .unwrap_or(defaults.sound_cc_mapping),
+                fx_cc_mapping: cfg
                     .global
-                    .effect_knob_ccs
-                    .unwrap_or(defaults.effect_knob_ccs),
-                voice_stealing: cfg.global.voice_stealing.unwrap_or(defaults.voice_stealing),
-                voice_release: cfg.global.voice_release.unwrap_or(defaults.voice_release),
+                    .fx_cc_mapping
+                    .unwrap_or(defaults.fx_cc_mapping),
+                voice_stealing: cfg.global.synth_stealing.unwrap_or(defaults.voice_stealing),
+                voice_release: cfg.global.synth_release.unwrap_or(defaults.voice_release),
             },
             Err(e) => {
                 eprintln!("Warning: failed to parse midi.toml: {e}. Using defaults.");
@@ -183,22 +182,18 @@ pub fn build_patch_table(
         .map(|e| (e.name, e.builder))
         .collect();
 
-    let effect_map: HashMap<&str, &EffectDef> = inventory::iter::<EffectDef>()
-        .map(|e| (e.name, e))
-        .collect();
-
     let tuner_map: HashMap<&str, TunerBuilder> = inventory::iter::<TunerEntry>()
         .map(|e| (e.name, e.tuner))
         .collect();
 
     let default_tuner = midi_hz;
-    let effect_knob_count = global_config.effect_knob_ccs.len().max(1);
+    let effect_knob_count = global_config.fx_cc_mapping.len().max(1);
 
     let mut patch_defs = Vec::new();
 
     for prog in programs {
         // --- resolve voice builder ---
-        let voice_builder = match sound_map.get(prog.function.as_str()) {
+        let synth_builder = match sound_map.get(prog.function.as_str()) {
             Some(&b) => b,
             None => {
                 eprintln!(
@@ -229,7 +224,7 @@ pub fn build_patch_table(
         );
 
         // voice config (empty table if none)
-        let voice_config = prog.config.clone().unwrap_or_else(toml::Table::new);
+        let synth_config = prog.config.clone().unwrap_or_else(toml::Table::new);
 
         // --- knob labels from effects ---
         let knob_labels: Vec<KnobLabel> = fx_chain.knob_labels.clone();
@@ -237,8 +232,8 @@ pub fn build_patch_table(
         // --- assemble PatchDef ---
         let patch_def = PatchDef {
             sound_factory: SynthFactory {
-                builder: voice_builder,
-                config: voice_config,
+                builder: synth_builder,
+                config: synth_config,
             },
             name: prog.name.clone(),
             tuning: tuner,

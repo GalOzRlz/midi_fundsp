@@ -10,7 +10,7 @@ function = "Square_saw_soft"
 name = "soft square+saw"
 tuning = "just intonation"                # registered tuner
 [program.effects]
-chain = ["tape_drift", "eq2", "reverb"]
+chain = ["reverb"]
 [program.effects.reverb]
 # Construction parameters (never modulated)
 room_size = 8.8

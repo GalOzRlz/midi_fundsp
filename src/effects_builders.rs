@@ -71,7 +71,7 @@ impl FxChainFactory {
     }
         pub fn new(
             effects_config: Option<&TomlEffectSection>,
-            effect_knob_count: usize,   // from GlobalConfig.effect_knob_ccs.len()
+            effect_knob_count: usize,   // from GlobalConfig.fx_cc_mapping.len()
         ) -> Self {
             // Build the effect registry once
             let registry: HashMap<&str, &EffectDef> = inventory::iter::<EffectDef>()
@@ -88,7 +88,7 @@ impl FxChainFactory {
             };
 
             let mut chain = Vec::new();
-            let mut initial_knobs = vec![0.0_f32; effect_knob_count.max(1)];
+            let initial_knobs = vec![0.0_f32; effect_knob_count.max(1)];
             let mut knob_labels = Vec::new();
             let num_knobs = effect_knob_count;
 
