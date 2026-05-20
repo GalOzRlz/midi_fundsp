@@ -6,7 +6,6 @@
 // use fundsp::prelude64::{constant, sine_hz, Atan};
 // use fundsp::shape::Tanh;
 //
-// /// Returns an on-off Triangle wave.
 //
 // pub fn harpsichord(state: &SharedMidiState) -> Box<dyn AudioUnit> {
 //     state.adsr.configure(
@@ -50,3 +49,93 @@
 //
 // register_sound!("chorused_dirty_guitar", chorused_dirty_guitar);
 // register_sound!("plastic_pipe", plastic_pipe);
+
+use crate::SoundBuilder;
+use crate::patch_builder::{CcMap, ParamDefault, ParamInfo, ParamType, SoundEntry, SoundParams};
+use crate::{SharedMidiState, SynthFunc, register_sound};
+use fundsp::audiounit::AudioUnit;
+use fundsp::prelude64::*;
+use toml::Table;
+
+pub enum OscillatorType {
+    Saw,
+    Triangle,
+    Sine,
+    Pulse,   // duty cycle 0.0..1.0, 0.5 = square
+    Square,
+    None,
+}
+
+impl OscillatorType {
+    pub fn to_audiounit(&self) -> Box<dyn AudioUnit> {
+        match self {
+            OscillatorType::Saw => Box::new(poly_saw()),
+            OscillatorType::Triangle => Box::new(triangle()),
+            OscillatorType::Sine => Box::new(sine()),
+            OscillatorType::Pulse => Box::new(poly_pulse()),
+            OscillatorType::Square => Box::new(poly_square()),
+            OscillatorType::None => Box::new(sine()*constant(0.0)),
+        }
+    }
+    pub fn from_string(s: &str) -> OscillatorType {
+        match s {
+            "saw" => OscillatorType::Saw,
+            "triangle" => OscillatorType::Triangle,
+            "sine" => OscillatorType::Sine,
+            "pulse" => OscillatorType::Pulse,
+            "square" => OscillatorType::Square,
+            _ => OscillatorType::None,
+        }
+    }
+    pub fn from_string_to_audiounit(s: &str) -> Box<dyn AudioUnit> {
+         OscillatorType::from_string(s).to_audiounit()
+    }
+}
+
+pub struct TwoOscMixParams {
+    pub dummy: f64,
+    pub oscillator_type_1: OscillatorType,
+    pub oscillator_type_2: OscillatorType,
+}
+
+impl SoundParams for TwoOscMixParams {
+    fn from_table(table: &Table) -> Self {
+        let osc1_str = table.get("osc1").and_then(|v| v.as_str()).unwrap_or("None");
+        let osc2_str = table.get("osc2").and_then(|v| v.as_str()).unwrap_or("None");
+        Self {
+            dummy: table.get("volume").and_then(|v| v.as_float()).unwrap_or(0.8),
+            oscillator_type_1: OscillatorType::from_string(&osc1_str),
+            oscillator_type_2: OscillatorType::from_string(&osc2_str),
+        }
+    }
+
+    fn param_info() -> &'static [ParamInfo] {
+        &[
+            ParamInfo {
+                name: "volume",
+                param_type: ParamType::Float,
+                default: ParamDefault::Float(0.5),
+            },
+        ]
+    }
+}
+
+fn basic_pluck() -> Box<dyn AudioUnit> {
+    Box::new((square() & saw()) >> lowpass_hz(3000.0, 0.5))
+}
+
+//todo: make this into a general synth: pro style...2 oscillators with shapes cascading (saw, trianle, pulse) - detune control,
+// todo: this should be an engine with 2 oscilators with independent levels (pulse width modulation too?), detune and pitch shit of 1 octave up and down
+pub fn saw_to_square(_params: &TwoOscMixParams, state: &SharedMidiState) -> Box<dyn AudioUnit> {
+    let b_cc = state.get_sound_control_change(1);
+    let synth = (square() * (constant(1.0) - b_cc.clone()) & saw() * b_cc) * 2.0 >> lowpass_hz(8000.0, 0.5);
+    state.assemble_unpitched_sound(basic_pluck(), state.boxed_adsr())
+}
+
+register_sound!(
+    name: "Square_saw_soft",    // display name & base for struct name
+    params: TwoOscMixParams,
+    factory: saw_to_square,
+    cc_params: [("balance", 1)]   // CC param: name, default knob index, default value
+);
+

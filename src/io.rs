@@ -480,7 +480,7 @@ impl<const N: usize> VoiceManager<N> {
         let sound_len = config.sound_knob_ccs.len().max(1);
         let effect_len = config.effect_knob_ccs.len().max(1);
 
-        let mut first_table = &patch_table.clone().entries[0];
+        let first_table = &patch_table.clone().entries[0];
         let synth_func = first_table.sound_factory.build();
         let fx_cc_array = first_table.effects.initial_cc.clone();
         let sound_acc_array = first_table.initial_cc.clone();
