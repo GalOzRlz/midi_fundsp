@@ -459,6 +459,7 @@ struct VoiceManager<const N: usize> {
     patch_table: Arc<PatchTable>,
     config: GlobalConfig,
     effects: FxChainFactory,
+    master_fx_net: Net,
     current_patch_num: usize,
     sound_knobs: Vec<f32>,
     effect_knobs: Vec<f32>,
@@ -479,22 +480,23 @@ impl<const N: usize> VoiceManager<N> {
         let sound_len = config.sound_knob_ccs.len().max(1);
         let effect_len = config.effect_knob_ccs.len().max(1);
 
-        let first_table = &patch_table.clone().entries[0];
+        let mut first_table = &patch_table.clone().entries[0];
         let synth_func = first_table.sound_factory.build();
-        let cc_array = first_table.effects.initial_cc.clone();
-        let sound_array = first_table.initial_cc.clone();
+        let fx_cc_array = first_table.effects.initial_cc.clone();
+        let sound_acc_array = first_table.initial_cc.clone();
         let tuner = first_table.tuning;
 
         let states = [(); N].map(|_| {
             SharedMidiState::new(
                 &config.sound_knob_ccs,
                 &config.effect_knob_ccs,
-                &cc_array,
-                &cc_array,
+                &sound_acc_array,
+                &fx_cc_array,
+                tuner
             )
         });
-
-        let mut s = Self {
+        let master_fx_net = first_table.effects.clone().build(&states[0].clone());
+        Self {
             states,
             next: ModNumC::new(0),
             pitch2state: [None; NUM_MIDI_VALUES],
@@ -508,10 +510,8 @@ impl<const N: usize> VoiceManager<N> {
             effect_knobs: vec![0.0; effect_len],
             cc_to_knob,
             current_patch_num: 0,
-        };
-        s.set_midi_to_hz(tuner);
-        s.effects.build(&s.states[0]);
-        s
+            master_fx_net
+        }
     }
 
     fn set_midi_to_hz(&mut self, midi_to_hz: fn(f32) -> f32) {
@@ -550,7 +550,7 @@ impl<const N: usize> VoiceManager<N> {
             }
             _ => panic!("Unsupported output count on synth! use either U1 (mono) or U2 (stereo)"),
         };
-        mix >> master_limiter() >> self.effects.net.clone() // add normalizer?
+        mix >> master_limiter() >> self.master_fx_net.clone()
     }
 
     fn decode(&mut self, msg: &MidiMsg) -> Option<RelayedMessage> {

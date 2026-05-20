@@ -116,8 +116,9 @@ fn fundsp_reverb_factory(params: &ReverbParams, cc_map: &HashMap<String, usize>)
     let room_size = params.room_size; // ← typed, compiler‑checked
     let damping = params.damping;
     let length = params.length;
+    let mix_cc = *cc_map.get("mix").unwrap_or(&0);
     Box::new(move |state| {
-        let wet_amount = state.get_effect_control_change(1);
+        let wet_amount = state.get_effect_control_change(mix_cc);
         cc_controlled_reverb(
             to_net(wet_amount),
             length,
@@ -131,7 +132,7 @@ register_effect!(
     name: "reverb",
     params: ReverbParams,
     factory: fundsp_reverb_factory,
-    cc_params: [("wet_amount", 1)]
+    cc_params: [("mix", 1)]
 );
 
 //
@@ -179,3 +180,4 @@ register_effect!(
 // );
 
 // todo: add separate high and low as well - filter type selection with enum
+// cc will control q and val

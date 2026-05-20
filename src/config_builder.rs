@@ -241,8 +241,10 @@ pub fn build_patch_table(
                 config: voice_config,
             },
             name: prog.name.clone(),
-            tuning,
+            tuning: tuner,
             effects: fx_chain,
+            sound_cc_map: Default::default(),
+            initial_cc: vec![],
             knob_labels,
         };
 

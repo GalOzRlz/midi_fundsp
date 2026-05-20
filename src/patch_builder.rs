@@ -5,7 +5,6 @@ use crate::tunings::TunerBuilder;
 use fundsp::prelude::{AudioUnit, U2, multipass};
 use inventory;
 use std::collections::HashMap;
-use std::sync::Arc;
 use toml;
 use toml::Table;
 
@@ -53,7 +52,6 @@ pub struct KnobLabel {
 pub type SoundBuilder = fn(
     state: &SharedMidiState,
     config: &toml::Table,
-    cc_map: &HashMap<String, usize>,   // built from registration only
 ) -> Box<dyn AudioUnit>;
 
 // ---- Sound registry ----
@@ -76,23 +74,21 @@ macro_rules! register_sound {
         cc_params: [ $( ($cc_name:expr, $cc_default_knob:expr) ),* $(,)? ]
     ) => {
         inventory::submit! {
-            $crate::patch_builder::SoundEntry {
+            SoundEntry {
                 name: $name,
                 builder: (|state: &$crate::SharedMidiState,
-                           config: &toml::Table,
-                           cc_map: &std::collections::HashMap<String, usize>|
+                           config: &toml::Table|
                  -> Box<dyn fundsp::prelude64::AudioUnit> {
-                    let params = <$params_type as $crate::sound_registry::SoundParams>::from_table(config);
-                    $factory_fn(state, &params, cc_map)
-                }) as $crate::patch_builder::SoundBuilder,
-                param_info: <$params_type as $crate::sound_registry::SoundParams>::param_info as fn() -> &'static [$crate::sound_registry::ParamInfo],
+                    let params = <$params_type as SoundParams>::from_table(config);
+                    $factory_fn(&params, state)
+                }) as SoundBuilder,
+                param_info: <$params_type as SoundParams>::param_info as fn() -> &'static [ParamInfo],
                 cc_params: &[ $( ($cc_name, $cc_default_knob) ),* ],
             }
         }
     };
 }
 
-// ---- PatchDef ----
 #[derive(Clone)]
 pub struct PatchDef {
     pub sound_factory: SynthFactory,

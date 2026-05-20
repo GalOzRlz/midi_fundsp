@@ -44,22 +44,20 @@ pub mod sounds;
 pub mod tunings;
 mod backend;
 
-use std::collections::HashMap;
 use crate::config_builder::MAX_KNOBS_PER_GROUP;
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::effects::to_net;
-use crate::patch_builder::{CcMap, KnobGroup, SoundBuilder};
+use crate::patch_builder::SoundBuilder;
 use crate::patch_helpers::Adsr;
 use fundsp::math::midi_hz;
 use fundsp::net::Net;
 use fundsp::prelude::{An, AudioUnit, FrameMul};
 use fundsp::prelude64::{adsr_live, shared, var};
 use fundsp::shared::{Shared, Var};
-use midi_msg::ControlChange::CC;
 use midi_msg::MidiMsg;
+use crate::tunings::TunerBuilder;
 
 /// MIDI values for pitch and velocity range from 0 to 127.
 pub const MAX_MIDI_VALUE: u8 = 127;
@@ -147,6 +145,7 @@ impl SharedMidiState {
         effect_knob_ccs: &[u8],
         sound_init: &[f32],
         effect_init: &[f32],
+        tuner:  TunerBuilder,
     ) -> Self {
         let mut s = Self::default();
         s.sound_knob_count = sound_knob_ccs.len().min(MAX_KNOBS_PER_GROUP);
@@ -243,7 +242,6 @@ impl SharedMidiState {
             FrameMul::new(),
         ))
     }
-
     /// Get sound CC (1‑based index)
     pub fn get_sound_control_change(&self, idx: usize) -> An<Var> {
         self.sound_knob(idx)
