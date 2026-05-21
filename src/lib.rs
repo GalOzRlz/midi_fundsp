@@ -142,7 +142,7 @@ pub struct SharedMidiState {
     midi_to_hz: fn(f32) -> f32,
     sound_cc_vals: [Shared; MAX_KNOBS_PER_GROUP],
     fx_cc_vals: [Shared; MAX_KNOBS_PER_GROUP],
-    sound_knob_count: usize, // actual length from config
+    sound_cc_count: usize,
     effect_cc_count: usize,
     adsr: Adsr,
 }
@@ -157,7 +157,7 @@ impl Default for SharedMidiState {
             midi_to_hz: midi_hz,
             sound_cc_vals: core::array::from_fn(|_| Shared::new(0.0)),
             fx_cc_vals: core::array::from_fn(|_| Shared::new(0.0)),
-            sound_knob_count: 0,
+            sound_cc_count: 0,
             effect_cc_count: 0,
             adsr: Default::default(),
         }
@@ -184,9 +184,9 @@ impl SharedMidiState {
         tuner: TunerBuilder,
     ) -> Self {
         let mut s = Self::default();
-        s.sound_knob_count = sound_cc_mapping.len().min(MAX_KNOBS_PER_GROUP);
+        s.sound_cc_count = sound_cc_mapping.len().min(MAX_KNOBS_PER_GROUP);
         s.effect_cc_count = fx_cc_mapping.len().min(MAX_KNOBS_PER_GROUP);
-        for i in 0..s.sound_knob_count {
+        for i in 0..s.sound_cc_count {
             let val = sound_init.get(i).copied().unwrap_or(0.0);
             s.sound_cc_vals[i].set_value(val);
         }
@@ -211,17 +211,25 @@ impl SharedMidiState {
                 ),
         )
     }
-    pub fn sound_knob(&self, idx: usize) -> An<Var> {
-        if idx < 1 || idx > self.sound_knob_count {
-            return var(&self.control);
-        } // fallback
-        var(&self.sound_cc_vals[idx - 1])
-    }
-    pub fn effect_knob(&self, idx: usize) -> An<Var> {
-        if idx < 1 || idx > self.effect_cc_count {
-            return var(&self.control);
+    fn sound_cc(&self, idx: usize) -> Option<An<Var>> {
+        if idx < 1 || idx > self.sound_cc_count {
+            return None;
         }
-        var(&self.fx_cc_vals[idx - 1])
+        Some(var(&self.sound_cc_vals[idx - 1]))
+    }
+    fn fx_cc(&self, idx: usize) -> Option<An<Var>> {
+        if idx < 1 || idx > self.effect_cc_count {
+            return None;
+        }
+        Some(var(&self.fx_cc_vals[idx - 1]))
+    }
+
+    pub fn get_fx_cc_or(&self, cc: usize, default: f32) -> An<Var> {
+        self.fx_cc(cc).unwrap_or(var(&shared(default)))
+    }
+
+    pub fn get_sound_cc_or(&self, cc: usize, default: f32) -> An<Var> {
+        self.sound_cc(cc).unwrap_or(var(&shared(default)))
     }
 
     /// Changes how MIDI notes are converted to pitches. Defaults to equal temperament.
@@ -278,15 +286,6 @@ impl SharedMidiState {
             self.volume(adjuster),
             FrameMul::new(),
         ))
-    }
-    /// Get sound CC (1‑based index)
-    pub fn get_sound_control_change(&self, idx: usize) -> An<Var> {
-        self.sound_knob(idx)
-    }
-
-    /// Get effect CC (1‑based index)
-    pub fn get_effect_control_change(&self, idx: usize) -> An<Var> {
-        self.effect_knob(idx)
     }
 
     /// Encodes a MIDI `Note On` event as a positive gate signal

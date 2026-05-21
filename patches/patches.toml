@@ -8,14 +8,14 @@
 [[program]]
 function = "Square_saw_soft"
 name = "soft square+saw"
-tuning = "just intonation"                # registered tuner
+tuning = "just intonation"
 [program.effects]
 chain = ["reverb"]
 [program.effects.reverb]
 # Construction parameters (never modulated)
 room_size = 8.8
 damping   = 0.5
-length    = 4.2                     # reverb tail length in seconds
+length    = 4.2
 # CC‑mappable parameter: mix
-wet_amount = 0.9                           # initial value (CC knob will override)
+wet_amount = 0.9 
 #

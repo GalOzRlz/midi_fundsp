@@ -45,7 +45,7 @@ impl Default for GlobalConfig {
     fn default() -> Self {
         Self {
             voice_stealing: VoiceStealingConfig::LegatoLast,
-            voice_release: FreeVoiceStrategy::ReleaseOnZero,
+            voice_release: FreeVoiceStrategy::FollowADSR,
             sound_cc_mapping: default_sound_cc_vals(),
             fx_cc_mapping: default_fx_cc_vals(),
         }

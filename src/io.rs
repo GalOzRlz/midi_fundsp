@@ -496,7 +496,7 @@ impl<const N: usize> VoiceManager<N> {
             )
         });
         let master_fx_net = first_table.effects.clone().build(&states[0].clone());
-        Self {
+        let mut s = Self {
             states,
             next: ModNumC::new(0),
             pitch2state: [None; NUM_MIDI_VALUES],
@@ -511,7 +511,9 @@ impl<const N: usize> VoiceManager<N> {
             cc_to_knob,
             current_patch_num: 0,
             master_fx_net,
-        }
+        };
+        s.apply_init_cc_vals();
+        s
     }
 
     fn set_midi_to_hz(&mut self, midi_to_hz: fn(f32) -> f32) {
@@ -685,7 +687,38 @@ impl<const N: usize> VoiceManager<N> {
         let new_num = (self.current_patch_num as i32 + offset).rem_euclid(len as i32);
         self.current_patch_num = new_num as usize;
     }
+    fn apply_init_cc_vals(&mut self) {
+        // 1. Apply effect initial CCs to effect knobs
+        for (i, &val) in self.effects.initial_cc.iter().enumerate() {
+            println!("FX {}, {}", i, val);
+            if i < self.fx_cc_vals.len() {
+                self.fx_cc_vals[i] = val;
+                for state in self.states.iter_mut() {
+                    if i < state.effect_cc_count {
+                        state.fx_cc_vals[i].set_value(val);
+                    }
+                }
+            }
+        }
 
+        // 2. Apply sound initial CCs to sound parameters
+        for (i, &val) in self.patch_table.entries[self.current_patch_num]
+            .initial_cc
+            .iter()
+            .enumerate()
+        {
+            // Ensure we don't go out of bounds for your sound CC array
+            if i < self.sound_cc_vals.len() {
+                self.sound_cc_vals[i] = val;
+                // If your states also store sound CCs, update them similarly:
+                for state in self.states.iter_mut() {
+                    if i < state.sound_cc_count {
+                        state.sound_cc_vals[i].set_value(val);
+                    }
+                }
+            }
+        }
+    }
     fn change_patch(&mut self, program: &u8) {
         let table = self.patch_table.clone();
         if let Some(entry) = table.entries.get(*program as usize) {
@@ -695,19 +728,7 @@ impl<const N: usize> VoiceManager<N> {
             self.set_midi_to_hz(tuner);
             self.effects.build(&self.states[0]);
             self.current_patch_num = *program as usize;
-            // Re-initialize knob values from the new program's initial_cc if desired.
-            // todo: initial cc for sounds
-            for (i, &val) in self.effects.initial_cc.iter().enumerate() {
-                // only update effect knobs (the fx_cc_vals vector and state)
-                if i < self.fx_cc_vals.len() {
-                    self.fx_cc_vals[i] = val;
-                    for state in self.states.iter_mut() {
-                        if i < state.effect_cc_count {
-                            state.fx_cc_vals[i].set_value(val);
-                        }
-                    }
-                }
-            }
+            self.apply_init_cc_vals();
         }
     }
 

@@ -68,7 +68,7 @@ pub fn tape_wow(depth: Net) -> Net {
 //     let _ = params.blank;
 //     let depth_val = *cc_map.get("depth").unwrap_or(&0);
 //     Box::new(move |state| {
-//         let depth_net = to_net(state.get_effect_control_change(depth_val));
+//         let depth_net = to_net(state.get_fx_cc(depth_val));
 //         tape_wow(depth_net)
 //     })
 // }
@@ -123,9 +123,9 @@ fn fundsp_reverb_factory(params: &ReverbParams, cc_map: &HashMap<String, usize>)
     let room_size = params.room_size; // ← typed, compiler‑checked
     let damping = params.damping;
     let length = params.length;
-    let mix_cc = *cc_map.get("mix").unwrap_or(&0);
+    let mix_cc = *cc_map.get("wet_amount").unwrap_or(&0);
     Box::new(move |state| {
-        let wet_amount = state.get_effect_control_change(mix_cc);
+        let wet_amount = state.get_fx_cc_or(mix_cc, 0.5);
         cc_controlled_reverb(to_net(wet_amount), length, room_size, damping)
     })
 }
@@ -134,11 +134,11 @@ register_effect!(
     name: "reverb",
     params: ReverbParams,
     factory: fundsp_reverb_factory,
-    cc_params: [("Mix", 1)]
+    cc_params: [("wet_amount", 1)]
 );
 
 pub fn master_lowpass(cc: usize, shared_midi_state: &SharedMidiState, q: f32) -> Net {
-    let cutoff_val = shared_midi_state.get_effect_control_change(cc) >> cc_smooth();
+    let cutoff_val = shared_midi_state.get_fx_cc_or(cc, 1.0) >> cc_smooth();
     let cutoff_hrz = product(constant(20_000.0), cutoff_val) >> cc_smooth();
     Net::wrap(Box::new(
         (pass() | cutoff_hrz >> follow(0.05_f32)) >> moog_q(q),
@@ -146,7 +146,7 @@ pub fn master_lowpass(cc: usize, shared_midi_state: &SharedMidiState, q: f32) ->
 }
 
 pub fn master_highpass(cc: usize, shared_midi_state: &SharedMidiState, q: f32) -> Net {
-    let cutoff_val = shared_midi_state.get_effect_control_change(cc) >> cc_smooth();
+    let cutoff_val = shared_midi_state.get_fx_cc_or(cc, 0.0) >> cc_smooth();
     let cutoff_hrz = product(constant(8_000.0), cutoff_val) >> cc_smooth();
     Net::wrap(Box::new(
         (pass() | cutoff_hrz >> follow(0.05_f32)) >> highpass_q(q),
@@ -201,8 +201,8 @@ impl Parameterized for Eq2Params {
 fn eq_2_factory(params: &Eq2Params, cc_map: &HashMap<String, usize>) -> EffectFunc {
     let lp_q = params.lp_q;
     let hp_q = params.hp_q;
-    let low_cut = *cc_map.get("low_cut").unwrap_or(&0);
-    let high_cut = *cc_map.get("high_cut_frequency").unwrap_or(&0);
+    let low_cut = *cc_map.get("lowcut").unwrap_or(&0);
+    let high_cut = *cc_map.get("highcut").unwrap_or(&0);
     Box::new(move |state| eq_2(low_cut, high_cut, lp_q, hp_q, state))
 }
 

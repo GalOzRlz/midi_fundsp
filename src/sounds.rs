@@ -128,14 +128,10 @@ impl Parameterized for TwoOscMixParams {
     }
 }
 
-fn basic_pluck() -> Box<dyn AudioUnit> {
-    Box::new((square() & saw()) >> lowpass_hz(3000.0, 0.5))
-}
-
 //todo: make this into a general synth: pro style...2 oscillators with shapes cascading (saw, trianle, pulse) - detune control,
 // todo: this should be an engine with 2 oscilators with independent levels (pulse width modulation too?), detune and pitch shit of 1 octave up and down
 pub fn saw_to_square(_params: &TwoOscMixParams, state: &SharedMidiState) -> Box<dyn AudioUnit> {
-    let b_cc = state.get_sound_control_change(1);
+    let b_cc = state.get_sound_cc_or(1, 0.5);
     let synth = Box::new(
         (square() * (constant(1.0) - b_cc.clone()) & saw() * b_cc) * 2.0
             >> lowpass_hz(10000.0, 0.5),
@@ -144,8 +140,8 @@ pub fn saw_to_square(_params: &TwoOscMixParams, state: &SharedMidiState) -> Box<
 }
 
 register_sound!(
-    name: "Square_saw_soft",    // display name & base for struct name
+    name: "Square_saw_soft",
     params: TwoOscMixParams,
     factory: saw_to_square,
-    cc_params: [("balance", 1)]   // CC param: name, default knob index, default value
+    cc_params: [("balance", 1)]
 );
