@@ -50,9 +50,9 @@
 // register_sound!("chorused_dirty_guitar", chorused_dirty_guitar);
 // register_sound!("plastic_pipe", plastic_pipe);
 
-use crate::patch_builder::{ParamDefault, ParamInfo, ParamType, SoundEntry, Parameters};
 use crate::SoundBuilder;
-use crate::{register_sound, SharedMidiState};
+use crate::patch_builder::{ParamDefault, ParamInfo, ParamType, Parameters, SoundEntry};
+use crate::{SharedMidiState, register_sound};
 use fundsp::audiounit::AudioUnit;
 use fundsp::prelude64::*;
 use toml::Table;
@@ -61,7 +61,7 @@ pub enum OscillatorType {
     Saw,
     Triangle,
     Sine,
-    Pulse,   // todo: add Pulse Width
+    Pulse, // todo: add Pulse Width
     Square,
     None,
 }
@@ -74,7 +74,7 @@ impl OscillatorType {
             OscillatorType::Sine => Box::new(sine()),
             OscillatorType::Pulse => Box::new(poly_pulse()),
             OscillatorType::Square => Box::new(poly_square()),
-            OscillatorType::None => Box::new(sine()*constant(0.0)),
+            OscillatorType::None => Box::new(sine() * constant(0.0)),
         }
     }
     pub fn from_string(s: &str) -> OscillatorType {
@@ -88,7 +88,7 @@ impl OscillatorType {
         }
     }
     pub fn from_string_to_audiounit(s: &str) -> Box<dyn AudioUnit> {
-         OscillatorType::from_string(s).to_audiounit()
+        OscillatorType::from_string(s).to_audiounit()
     }
 }
 
@@ -103,7 +103,10 @@ impl Parameters for TwoOscMixParams {
         let osc1_str = table.get("osc1").and_then(|v| v.as_str()).unwrap_or("None");
         let osc2_str = table.get("osc2").and_then(|v| v.as_str()).unwrap_or("None");
         Self {
-            dummy: table.get("volume").and_then(|v| v.as_float()).unwrap_or(0.8),
+            dummy: table
+                .get("volume")
+                .and_then(|v| v.as_float())
+                .unwrap_or(0.8),
             oscillator_type_1: OscillatorType::from_string(&osc1_str),
             oscillator_type_2: OscillatorType::from_string(&osc2_str),
         }
@@ -112,13 +115,11 @@ impl Parameters for TwoOscMixParams {
     // todo: complete this properly
 
     fn param_info() -> &'static [ParamInfo] {
-        &[
-            ParamInfo {
-                name: "volume",
-                param_type: ParamType::Float,
-                default: ParamDefault::Float(0.5),
-            },
-        ]
+        &[ParamInfo {
+            name: "volume",
+            param_type: ParamType::Float,
+            default: ParamDefault::Float(0.5),
+        }]
     }
 }
 
@@ -130,8 +131,11 @@ fn basic_pluck() -> Box<dyn AudioUnit> {
 // todo: this should be an engine with 2 oscilators with independent levels (pulse width modulation too?), detune and pitch shit of 1 octave up and down
 pub fn saw_to_square(_params: &TwoOscMixParams, state: &SharedMidiState) -> Box<dyn AudioUnit> {
     let b_cc = state.get_sound_control_change(1);
-    let synth = (square() * (constant(1.0) - b_cc.clone()) & saw() * b_cc) * 2.0 >> lowpass_hz(8000.0, 0.5);
-    state.assemble_unpitched_sound(basic_pluck(), state.boxed_adsr())
+    let synth = Box::new(
+        (square() * (constant(1.0) - b_cc.clone()) & saw() * b_cc) * 2.0
+            >> lowpass_hz(10000.0, 0.5),
+    );
+    state.assemble_unpitched_sound(synth, state.boxed_adsr())
 }
 
 register_sound!(
@@ -140,4 +144,3 @@ register_sound!(
     factory: saw_to_square,
     cc_params: [("balance", 1)]   // CC param: name, default knob index, default value
 );
-
