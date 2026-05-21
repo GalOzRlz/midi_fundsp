@@ -7,12 +7,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use toml::Table;
 
-// For effects
-pub trait EffectParams: Sized {
-    fn from_table(table: &Table) -> Self;
-    fn param_info() -> &'static [ParamInfo];
-}
-
 #[macro_export]
 macro_rules! register_effect {
     (
@@ -27,14 +21,14 @@ macro_rules! register_effect {
                 factory: (|config: &toml::Table,
                            cc_map: &std::collections::HashMap<String, usize>|
                  -> EffectFunc {
-                    let params = <$params_type as EffectParams>::from_table(config);
+                    let params = <$params_type as Parameterized>::from_table(config);
                     $factory_fn(&params, cc_map)
                 }) as fn(
                     &toml::Table,
                     &std::collections::HashMap<String, usize>,
                 ) -> EffectFunc,
                 // Store the function pointer, not the result
-                param_info: <$params_type as EffectParams>::param_info as fn() -> &'static [ParamInfo],
+                param_info: <$params_type as Parameterized>::param_info as fn() -> &'static [ParamInfo],
                 cc_params: &[ $( ($cc_name, $cc_default_knob) ),* ],
             }
         }

@@ -461,8 +461,8 @@ struct VoiceManager<const N: usize> {
     effects: FxChainFactory,
     master_fx_net: Net,
     current_patch_num: usize,
-    sound_knobs: Vec<f32>,
-    effect_knobs: Vec<f32>,
+    sound_cc_vals: Vec<f32>,
+    fx_cc_vals: Vec<f32>,
     cc_to_knob: HashMap<u8, (KnobGroup, usize)>, // CC → (group, 0‑based index)
 }
 
@@ -506,8 +506,8 @@ impl<const N: usize> VoiceManager<N> {
             patch_table,
             config: config.clone(),
             effects: first_table.effects.clone(),
-            sound_knobs: vec![0.0; sound_len],
-            effect_knobs: vec![0.0; effect_len],
+            sound_cc_vals: vec![0.0; sound_len],
+            fx_cc_vals: vec![0.0; effect_len],
             cc_to_knob,
             current_patch_num: 0,
             master_fx_net,
@@ -581,33 +581,33 @@ impl<const N: usize> VoiceManager<N> {
                     if let Some(&(group, idx)) = self.cc_to_knob.get(control) {
                         match group {
                             KnobGroup::Sound => {
-                                self.sound_knobs[idx] = norm;
+                                self.sound_cc_vals[idx] = norm;
                                 for state in self.states.iter_mut() {
-                                    state.sound_knobs[idx].set_value(norm);
+                                    state.sound_cc_vals[idx].set_value(norm);
                                 }
                             }
                             KnobGroup::Effect => {
-                                self.effect_knobs[idx] = norm;
+                                self.fx_cc_vals[idx] = norm;
                                 for state in self.states.iter_mut() {
-                                    state.effect_knobs[idx].set_value(norm);
+                                    state.fx_cc_vals[idx].set_value(norm);
                                 }
                             }
                         }
                         // Print labels
-                        if let Some(prog) =
-                            self.patch_table.clone().entries.get(self.current_patch_num)
-                        {
-                            for lbl in prog
-                                .effects
-                                .knob_labels
-                                .iter()
-                                .chain(prog.sound_factory.knob_labels.iter())
-                            {
-                                if lbl.group == group && lbl.index == idx + 1 {
-                                    eprintln!("Knob {} {}: {}", idx + 1, lbl.label, value);
-                                }
-                            }
-                        }
+                        // if let Some(prog) =
+                        //     self.patch_table.clone().entries.get(self.current_patch_num)
+                        // {
+                        //     for lbl in prog
+                        //         .effects
+                        //         .knob_labels
+                        //         .iter()
+                        //         .chain(prog.sound_factory.knob_labels.iter())
+                        //     {
+                        //         if lbl.group == group && lbl.index == idx + 1 {
+                        //             eprintln!("{}: {}", lbl.label.to_ascii_uppercase(), value);
+                        //         }
+                        //     }
+                        // }
                     }
                 }
                 _ => {}
@@ -697,12 +697,12 @@ impl<const N: usize> VoiceManager<N> {
             self.current_patch_num = *program as usize;
             // Re-initialize knob values from the new program's initial_cc if desired.
             for (i, &val) in self.effects.initial_cc.iter().enumerate() {
-                // only update effect knobs (the effect_knobs vector and state)
-                if i < self.effect_knobs.len() {
-                    self.effect_knobs[i] = val;
+                // only update effect knobs (the fx_cc_vals vector and state)
+                if i < self.fx_cc_vals.len() {
+                    self.fx_cc_vals[i] = val;
                     for state in self.states.iter_mut() {
                         if i < state.effect_cc_count {
-                            state.effect_knobs[i].set_value(val);
+                            state.fx_cc_vals[i].set_value(val);
                         }
                     }
                 }

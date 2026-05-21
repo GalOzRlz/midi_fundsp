@@ -51,12 +51,32 @@
 // register_sound!("plastic_pipe", plastic_pipe);
 
 use crate::SoundBuilder;
-use crate::patch_builder::{ParamDefault, ParamInfo, ParamType, Parameters, SoundEntry};
+use crate::patch_builder::{ParamDefault, ParamInfo, ParamType, Parameterized, SoundEntry};
 use crate::{SharedMidiState, register_sound};
 use fundsp::audiounit::AudioUnit;
 use fundsp::prelude64::*;
-use toml::Table;
+use serde::{Deserialize, Deserializer};
 
+fn deserialize_osc_type<'de, D>(deserializer: D) -> Result<OscillatorType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    match s.to_lowercase().as_str() {
+        "saw" => Ok(OscillatorType::Saw),
+        "triangle" => Ok(OscillatorType::Triangle),
+        "sine" => Ok(OscillatorType::Sine),
+        "pulse" => Ok(OscillatorType::Pulse),
+        "square" => Ok(OscillatorType::Square),
+        "none" => Ok(OscillatorType::None),
+        _ => Err(serde::de::Error::unknown_variant(
+            &s,
+            &["saw", "triangle", "sine", "pulse", "square", "none"],
+        )),
+    }
+}
+
+#[derive(serde::Deserialize)]
 pub enum OscillatorType {
     Saw,
     Triangle,
@@ -77,48 +97,33 @@ impl OscillatorType {
             OscillatorType::None => Box::new(sine() * constant(0.0)),
         }
     }
-    pub fn from_string(s: &str) -> OscillatorType {
-        match s {
-            "saw" => OscillatorType::Saw,
-            "triangle" => OscillatorType::Triangle,
-            "sine" => OscillatorType::Sine,
-            "pulse" => OscillatorType::Pulse,
-            "square" => OscillatorType::Square,
-            _ => OscillatorType::None,
-        }
-    }
-    pub fn from_string_to_audiounit(s: &str) -> Box<dyn AudioUnit> {
-        OscillatorType::from_string(s).to_audiounit()
-    }
 }
 
+#[derive(Deserialize)]
+#[serde(default)]
 pub struct TwoOscMixParams {
-    pub dummy: f64,
+    #[serde(deserialize_with = "deserialize_osc_type")]
     pub oscillator_type_1: OscillatorType,
+    #[serde(deserialize_with = "deserialize_osc_type")]
     pub oscillator_type_2: OscillatorType,
 }
 
-impl Parameters for TwoOscMixParams {
-    fn from_table(table: &Table) -> Self {
-        let osc1_str = table.get("osc1").and_then(|v| v.as_str()).unwrap_or("None");
-        let osc2_str = table.get("osc2").and_then(|v| v.as_str()).unwrap_or("None");
-        Self {
-            dummy: table
-                .get("volume")
-                .and_then(|v| v.as_float())
-                .unwrap_or(0.8),
-            oscillator_type_1: OscillatorType::from_string(&osc1_str),
-            oscillator_type_2: OscillatorType::from_string(&osc2_str),
+impl Default for TwoOscMixParams {
+    fn default() -> TwoOscMixParams {
+        TwoOscMixParams {
+            oscillator_type_1: OscillatorType::Triangle,
+            oscillator_type_2: OscillatorType::Sine,
         }
     }
+}
 
-    // todo: complete this properly
-
+impl Parameterized for TwoOscMixParams {
     fn param_info() -> &'static [ParamInfo] {
         &[ParamInfo {
             name: "volume",
             param_type: ParamType::Float,
             default: ParamDefault::Float(0.5),
+            description: None,
         }]
     }
 }

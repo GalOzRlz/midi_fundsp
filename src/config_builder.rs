@@ -9,10 +9,10 @@ use std::collections::{HashMap, HashSet};
 // ---------- dynamic knob sizing ----------
 pub const MAX_KNOBS_PER_GROUP: usize = 16;
 
-fn default_effect_knobs() -> Vec<u8> {
+fn default_fx_cc_vals() -> Vec<u8> {
     vec![74, 71, 76, 77]
 }
-fn default_sound_knobs() -> Vec<u8> {
+fn default_sound_cc_vals() -> Vec<u8> {
     vec![80, 81, 82, 83]
 }
 
@@ -46,8 +46,8 @@ impl Default for GlobalConfig {
         Self {
             voice_stealing: VoiceStealingConfig::LegatoLast,
             voice_release: FreeVoiceStrategy::ReleaseOnZero,
-            sound_cc_mapping: default_sound_knobs(),
-            fx_cc_mapping: default_effect_knobs(),
+            sound_cc_mapping: default_sound_cc_vals(),
+            fx_cc_mapping: default_fx_cc_vals(),
         }
     }
 }

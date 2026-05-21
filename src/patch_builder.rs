@@ -3,6 +3,7 @@ use crate::tunings::TunerBuilder;
 use crate::{SharedMidiState, SynthFactory};
 use fundsp::prelude64::AudioUnit;
 use inventory;
+use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use toml;
 use toml::Table;
@@ -26,10 +27,18 @@ pub struct ParamInfo {
     pub name: &'static str,
     pub param_type: ParamType,
     pub default: ParamDefault,
+    pub description: Option<&'static str>,
 }
-pub trait Parameters: Sized {
-    fn from_table(table: &Table) -> Self;
+pub trait Parameterized: Sized {
     fn param_info() -> &'static [ParamInfo];
+
+    fn from_table(table: &Table) -> Self
+    where
+        Self: DeserializeOwned + Default,
+    {
+        let value: toml::Value = table.clone().into();
+        Self::deserialize(value).unwrap_or_default()
+    }
 }
 
 pub type CcMap = HashMap<String, usize>;
@@ -75,10 +84,10 @@ macro_rules! register_sound {
                 builder: (|state: &$crate::SharedMidiState,
                            config: &toml::Table|
                  -> Box<dyn AudioUnit> {
-                    let params = <$params_type as Parameters>::from_table(config);
+                    let params = <$params_type as Parameterized>::from_table(config);
                     $factory_fn(&params, state)
                 }) as SoundBuilder,
-                param_info: <$params_type as Parameters>::param_info as fn() -> &'static [ParamInfo],
+                param_info: <$params_type as Parameterized>::param_info as fn() -> &'static [ParamInfo],
                 cc_params: &[ $( ($cc_name, $cc_default_knob) ),* ],
             }
         }

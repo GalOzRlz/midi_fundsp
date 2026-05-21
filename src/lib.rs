@@ -13,20 +13,6 @@
 //! * The `sound_builders` module contains functions that wrap [fundsp](https://crates.io/crates/fundsp) audio graphs
 //!   into `SynthFunc` functions with a variety of properties.
 //! * The `sounds` module contains `SynthFunc` functions that produce a variety of live sounds.
-//!
-//! The following [example programs](https://github.com/gjf2a/nabi_core/tree/master/examples) show how these components
-//! interact to produce a working synthesizer:
-//! * [`basic_demo.rs`](https://github.com/gjf2a/nabi_core/blob/master/examples/basic_demo.rs) opens the first MIDI
-//! device it finds and plays a simple triangle waveform sound in response to MIDI events.
-//! * [`stereo_demo.rs`](https://github.com/gjf2a/nabi_core/blob/master/examples/stereo_demo.rs) also opens the first MIDI
-//! device it finds. It plays notes below middle C through the left speaker using a Moog Pulse sound, and notes
-//! at Middle C or higher through the right speaker using a Moog Triangle sound.
-//! * [`choice_demo.rs`](https://github.com/gjf2a/nabi_core/blob/master/examples/choice_demo.rs) allows the user to choose
-//! one from among all connected MIDI devices. The user can then choose any sound from the `sounds` module for the program's
-//! response to MIDI events.
-//! * [`just_tempered_demo.rs`](https://github.com/gjf2a/nabi_core/blob/master/examples/just_tempered_demo.rs) shows how to
-//! use an alternative function for converting MIDI notes to frequencies. This specific alternative function
-//! uses [Just Intonation](https://ancientlyre.com/blog/blog/ancient-tuning-methods) instead of equal temperament.
 
 mod backend;
 pub mod community_patches;
@@ -59,6 +45,7 @@ use fundsp::prelude::{An, AudioUnit, FrameMul};
 use fundsp::prelude64::{adsr_live, shared, var};
 use fundsp::shared::{Shared, Var};
 use midi_msg::MidiMsg;
+use serde::de::DeserializeOwned;
 use toml::Table;
 
 /// MIDI values for pitch and velocity range from 0 to 127.
@@ -75,6 +62,21 @@ pub const CONTROL_OFF: f32 = -1.0;
 
 /// `SynthFunc` objects translate `SharedMidiState` values into [fundsp](https://crates.io/crates/fundsp) audio graphs.
 pub type SynthFunc = Arc<dyn Fn(&SharedMidiState) -> Box<dyn AudioUnit> + Send + Sync>;
+
+pub trait FromTable: Sized {
+    fn from_table(table: &Table) -> Self;
+}
+
+impl<T> FromTable for T
+where
+    T: DeserializeOwned + Default,
+{
+    fn from_table(table: &Table) -> Self {
+        let value: toml::Value = table.clone().into();
+        T::deserialize(value).unwrap_or_default()
+    }
+}
+
 #[derive(Clone)]
 pub struct SynthFactory {
     pub builder: SoundBuilder,
@@ -138,10 +140,8 @@ pub struct SharedMidiState {
     control: Shared,
     pitch_bend: Shared,
     midi_to_hz: fn(f32) -> f32,
-
-    // NEW: dual knob groups
-    sound_knobs: [Shared; MAX_KNOBS_PER_GROUP],
-    effect_knobs: [Shared; MAX_KNOBS_PER_GROUP],
+    sound_cc_vals: [Shared; MAX_KNOBS_PER_GROUP],
+    fx_cc_vals: [Shared; MAX_KNOBS_PER_GROUP],
     sound_knob_count: usize, // actual length from config
     effect_cc_count: usize,
 
@@ -156,8 +156,8 @@ impl Default for SharedMidiState {
             control: shared(CONTROL_OFF),
             pitch_bend: shared(1.0),
             midi_to_hz: midi_hz,
-            sound_knobs: core::array::from_fn(|_| Shared::new(0.0)),
-            effect_knobs: core::array::from_fn(|_| Shared::new(0.0)),
+            sound_cc_vals: core::array::from_fn(|_| Shared::new(0.0)),
+            fx_cc_vals: core::array::from_fn(|_| Shared::new(0.0)),
             sound_knob_count: 0,
             effect_cc_count: 0,
             adsr: Default::default(),
@@ -189,11 +189,11 @@ impl SharedMidiState {
         s.effect_cc_count = fx_cc_mapping.len().min(MAX_KNOBS_PER_GROUP);
         for i in 0..s.sound_knob_count {
             let val = sound_init.get(i).copied().unwrap_or(0.0);
-            s.sound_knobs[i].set_value(val);
+            s.sound_cc_vals[i].set_value(val);
         }
         for i in 0..s.effect_cc_count {
             let val = effect_init.get(i).copied().unwrap_or(0.0);
-            s.effect_knobs[i].set_value(val);
+            s.fx_cc_vals[i].set_value(val);
         }
         s.set_midi_to_hz(tuner);
         s
@@ -216,13 +216,13 @@ impl SharedMidiState {
         if idx < 1 || idx > self.sound_knob_count {
             return var(&self.control);
         } // fallback
-        var(&self.sound_knobs[idx - 1])
+        var(&self.sound_cc_vals[idx - 1])
     }
     pub fn effect_knob(&self, idx: usize) -> An<Var> {
         if idx < 1 || idx > self.effect_cc_count {
             return var(&self.control);
         }
-        var(&self.effect_knobs[idx - 1])
+        var(&self.fx_cc_vals[idx - 1])
     }
 
     /// Changes how MIDI notes are converted to pitches. Defaults to equal temperament.
