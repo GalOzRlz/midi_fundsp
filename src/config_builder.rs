@@ -203,6 +203,8 @@ pub fn build_patch_table(
                 continue;
             }
         };
+        // voice config (empty table if none)
+        let synth_config = prog.config.clone().unwrap_or_else(toml::Table::new);
 
         // --- resolve tuner ---
         let tuner = if let Some(ref tuning_name) = prog.tuning {
@@ -222,9 +224,6 @@ pub fn build_patch_table(
             prog.effects.as_ref(),
             effect_knob_count,
         );
-
-        // voice config (empty table if none)
-        let synth_config = prog.config.clone().unwrap_or_else(toml::Table::new);
 
         // --- knob labels from effects ---
         let knob_labels: Vec<KnobLabel> = fx_chain.knob_labels.clone();

@@ -50,7 +50,7 @@
 // register_sound!("chorused_dirty_guitar", chorused_dirty_guitar);
 // register_sound!("plastic_pipe", plastic_pipe);
 
-use crate::patch_builder::{ParamDefault, ParamInfo, ParamType, SoundEntry, SoundParams};
+use crate::patch_builder::{ParamDefault, ParamInfo, ParamType, SoundEntry, Parameters};
 use crate::SoundBuilder;
 use crate::{register_sound, SharedMidiState};
 use fundsp::audiounit::AudioUnit;
@@ -98,7 +98,7 @@ pub struct TwoOscMixParams {
     pub oscillator_type_2: OscillatorType,
 }
 
-impl SoundParams for TwoOscMixParams {
+impl Parameters for TwoOscMixParams {
     fn from_table(table: &Table) -> Self {
         let osc1_str = table.get("osc1").and_then(|v| v.as_str()).unwrap_or("None");
         let osc2_str = table.get("osc2").and_then(|v| v.as_str()).unwrap_or("None");
@@ -108,6 +108,8 @@ impl SoundParams for TwoOscMixParams {
             oscillator_type_2: OscillatorType::from_string(&osc2_str),
         }
     }
+
+    // todo: complete this properly
 
     fn param_info() -> &'static [ParamInfo] {
         &[

@@ -1,7 +1,7 @@
 use crate::effects_builders::FxChainFactory;
 use crate::tunings::TunerBuilder;
 use crate::{SharedMidiState, SynthFactory};
-use fundsp::prelude::AudioUnit;
+use fundsp::prelude64::AudioUnit;
 use inventory;
 use std::collections::HashMap;
 use toml;
@@ -27,7 +27,7 @@ pub struct ParamInfo {
     pub param_type: ParamType,
     pub default: ParamDefault,
 }
-pub trait SoundParams: Sized {
+pub trait Parameters: Sized {
     fn from_table(table: &Table) -> Self;
     fn param_info() -> &'static [ParamInfo];
 }
@@ -50,7 +50,7 @@ pub struct KnobLabel {
 // ---- Sound builder signature ----
 pub type SoundBuilder = fn(
     state: &SharedMidiState,
-    config: &toml::Table,
+    config: &Table,
 ) -> Box<dyn AudioUnit>;
 
 // ---- Sound registry ----
@@ -77,11 +77,11 @@ macro_rules! register_sound {
                 name: $name,
                 builder: (|state: &$crate::SharedMidiState,
                            config: &toml::Table|
-                 -> Box<dyn fundsp::prelude64::AudioUnit> {
-                    let params = <$params_type as SoundParams>::from_table(config);
+                 -> Box<dyn AudioUnit> {
+                    let params = <$params_type as Parameters>::from_table(config);
                     $factory_fn(&params, state)
                 }) as SoundBuilder,
-                param_info: <$params_type as SoundParams>::param_info as fn() -> &'static [ParamInfo],
+                param_info: <$params_type as Parameters>::param_info as fn() -> &'static [ParamInfo],
                 cc_params: &[ $( ($cc_name, $cc_default_knob) ),* ],
             }
         }
