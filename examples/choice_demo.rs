@@ -1,10 +1,10 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crossbeam_queue::SegQueue;
 use crossbeam_utils::atomic::AtomicCell;
 use midir::MidiInput;
 use nabi_core::config_builder::{create_ordered_patch_table, load_global_config};
-use nabi_core::io::get_first_midi_device;
+use nabi_core::io::choose_midi_device;
 use nabi_core::{
     io::{Speaker, SynthMsg, console_choice_from, start_input_thread, start_output_thread},
     patch_builder::PatchTable,
@@ -16,7 +16,7 @@ fn main() -> anyhow::Result<()> {
     while !quit {
         let global_config = load_global_config("config/global.toml");
         let mut midi_in = MidiInput::new("midir reading input")?;
-        let in_port = get_first_midi_device(&mut midi_in)?;
+        let in_port = choose_midi_device(&mut midi_in)?;
         let midi_msgs = Arc::new(SegQueue::new());
         while reset.load() {}
         start_input_thread(midi_msgs.clone(), midi_in, in_port, reset.clone());
