@@ -281,7 +281,7 @@ trait DubleSpeaker<const N: usize> {
         let buffer_size = match buffer_size_range {
             // If the device reports a min/max range, pick a value in between
             SupportedBufferSize::Range { min, max } => {
-                let target = 1024; // make it configurable?
+                let target = 441; // todo: make it configurable?
                 // Clamp the target to the valid range [min, max]
                 let chosen = target.clamp(*min, *max);
                 println!(
@@ -452,12 +452,24 @@ pub fn console_choice_from<T, F: Fn(&T) -> &str>(
 pub fn get_first_midi_device(midi_in: &mut MidiInput) -> anyhow::Result<MidiInputPort> {
     midi_in.ignore(Ignore::None);
     let in_ports = midi_in.ports();
+    let mut device_name = None;
     if in_ports.is_empty() {
         bail!("No MIDI devices attached")
     } else {
-        let device_name = midi_in.port_name(&in_ports[0])?;
-        println!("Chose MIDI device {device_name}");
-        Ok(in_ports[0].clone())
+        for (idx, port) in in_ports.iter().enumerate() {
+            let current = midi_in.port_name(port);
+            if let Ok(name) = current {
+                if !name.to_lowercase().contains("thru") & !name.to_lowercase().contains("through")
+                {
+                    device_name = Some(name);
+                    let device_name =
+                        device_name.ok_or_else(|| anyhow!("No usable MIDI device"))?;
+                    println!("Chose MIDI device {device_name}");
+                    return Ok(in_ports[idx].clone());
+                }
+            }
+        }
+        Err(anyhow!("No MIDI devices found"))
     }
 }
 

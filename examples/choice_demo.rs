@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crossbeam_queue::SegQueue;
 use crossbeam_utils::atomic::AtomicCell;
