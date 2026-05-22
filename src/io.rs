@@ -318,7 +318,7 @@ trait DubleSpeaker<const N: usize> {
         let stream = self.get_stream::<T>(&config, &device)?;
         stream.play()?;
         while self.handle_messages(midi_msgs.clone()) != RelayedMessage::SystemReset {
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            std::thread::sleep(std::time::Duration::from_millis(1000));
         }
 
         Ok(())
