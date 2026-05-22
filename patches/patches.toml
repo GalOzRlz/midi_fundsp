@@ -16,7 +16,7 @@ chain = ["eq2", "reverb"]
 room_size = 8.8
 damping   = 0.5
 length    = 4.2
-# CC‑mappable parameter: mix
+# CC‑mappable parameter: wet_amount
 wet_amount = 0.9
 [program.effects.eq2]
 lowcut = 0.0
