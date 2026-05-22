@@ -1,4 +1,4 @@
-# nabi_core - The Nabi core Fork
+# Nabi core
 
 ## Live performance synthesizer library based on midi_fundsp
 
