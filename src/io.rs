@@ -16,8 +16,9 @@ use crossbeam_queue::SegQueue;
 use crossbeam_utils::atomic::AtomicCell;
 use fastrand::u8;
 use fundsp::prelude::U2;
-use fundsp::prelude64::split;
+use fundsp::prelude64::{BufferVec, split};
 use fundsp::{
+    Float,
     net::Net,
     prelude::AudioUnit,
     prelude64::{shared, var},
@@ -260,8 +261,6 @@ impl Speaker {
 trait DubleSpeaker<const N: usize> {
     fn new(patch_table: Arc<PatchTable>, config: GlobalConfig) -> Self;
 
-    fn set_midi_to_hz(&mut self, midi_to_hz: fn(f32) -> f32);
-
     fn sound(&mut self) -> Net;
 
     fn run_output(&mut self, midi_msgs: Arc<SegQueue<SynthMsg>>) -> anyhow::Result<()> {
@@ -316,14 +315,12 @@ trait DubleSpeaker<const N: usize> {
         config: StreamConfig,
     ) -> anyhow::Result<()> {
         Self::warm_up(midi_msgs.clone());
-        let mut done = false;
-        while !done {
-            let stream = self.get_stream::<T>(&config, &device)?;
-            stream.play()?;
-            if self.handle_messages(midi_msgs.clone()) == RelayedMessage::SystemReset {
-                done = true;
-            }
+        let stream = self.get_stream::<T>(&config, &device)?;
+        stream.play()?;
+        while self.handle_messages(midi_msgs.clone()) != RelayedMessage::SystemReset {
+            std::thread::sleep(std::time::Duration::from_millis(1000));
         }
+
         Ok(())
     }
 
@@ -360,7 +357,7 @@ trait DubleSpeaker<const N: usize> {
         }
     }
 
-    fn get_stream<T: Sample + SizedSample + FromSample<f32>>(
+    fn get_stream_old<T: Sample + SizedSample + FromSample<f32>>(
         &mut self,
         config: &StreamConfig,
         device: &Device,
@@ -383,6 +380,48 @@ trait DubleSpeaker<const N: usize> {
             )
             .or_else(|err| bail!("{err:?}"))
     }
+
+    fn get_stream<T>(&mut self, config: &StreamConfig, device: &Device) -> anyhow::Result<Stream>
+    where
+        T: Sample + FromSample<f32> + SizedSample,
+    {
+        let sample_rate = config.sample_rate as f64;
+        let mut sound = self.sound();
+        sound.reset();
+        sound.set_sample_rate(sample_rate);
+
+        let mut next_block = move |block: &mut [(f32, f32)], n_frames: usize| {
+            let mut input_buffer = BufferVec::new(2);
+            let mut output_buffer = BufferVec::new(2);
+
+            sound.process(
+                n_frames,
+                &input_buffer.buffer_ref(),
+                &mut output_buffer.buffer_mut(),
+            );
+
+            // Copy the results into the output slice
+            for i in 0..n_frames {
+                block[i] = (output_buffer.at_f32(0, i), output_buffer.at_f32(1, i));
+            }
+        };
+
+        let channels = config.channels as usize;
+        let block_size = 64; // FunDSP’s max block size
+
+        let err_fn = |err| eprintln!("Error on stream: {err}");
+
+        device
+            .build_output_stream(
+                config,
+                move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
+                    write_data_block(data, channels, block_size, &mut next_block);
+                },
+                err_fn,
+                None,
+            )
+            .or_else(|err| bail!("{err:?}"))
+    }
 }
 
 /// The default player that has one stereo stream in and one out (U2 inputs, U2 outputs)
@@ -394,10 +433,6 @@ impl<const N: usize> DubleSpeaker<N> for StereoPlayer<N> {
     fn new(patch_table: Arc<PatchTable>, config: GlobalConfig) -> Self {
         let center_source = VoiceManager::<N>::new(patch_table.clone(), config);
         Self { center_source }
-    }
-
-    fn set_midi_to_hz(&mut self, midi_to_hz: fn(f32) -> f32) {
-        self.center_source.set_midi_to_hz(midi_to_hz);
     }
 
     fn sound(&mut self) -> Net {
@@ -469,6 +504,33 @@ fn write_data<T: Sample + FromSample<f32>>(
         for (channel, sample) in frame.iter_mut().enumerate() {
             *sample = if channel & 1 == 0 { left } else { right };
         }
+    }
+}
+fn write_data_block<T: Sample + FromSample<f32>>(
+    output: &mut [T],
+    channels: usize,
+    block_size: usize,
+    next_block: &mut dyn FnMut(&mut [(f32, f32)], usize),
+) {
+    let frame_count = output.len() / channels;
+    let mut block_buffer = vec![(0.0f32, 0.0f32); block_size];
+    let mut frames_written = 0;
+
+    while frames_written < frame_count {
+        let remaining = frame_count - frames_written;
+        let frames_to_gen = remaining.min(block_size);
+
+        next_block(&mut block_buffer[..frames_to_gen], frames_to_gen);
+
+        // Copy the block into the output buffer
+        for (i, (l, r)) in block_buffer[..frames_to_gen].iter().enumerate() {
+            let index = (frames_written + i) * channels;
+            output[index] = T::from_sample(*l);
+            if channels == 2 {
+                output[index + 1] = T::from_sample(*r);
+            }
+        }
+        frames_written += frames_to_gen;
     }
 }
 
