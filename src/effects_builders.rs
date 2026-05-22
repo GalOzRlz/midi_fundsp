@@ -139,7 +139,7 @@ impl FxChainFactory {
                 for (name, index) in knob_map.iter() {
                     if name == param_name {
                         initial_knobs.insert(
-                            *index,
+                            *index - 1, // cc is 1-..
                             value
                                 .as_float()
                                 .expect("illegal value for initialization param!")
@@ -152,7 +152,8 @@ impl FxChainFactory {
             let closure = (def.factory)(&construction, &knob_map);
             chain.push(closure);
         }
-
+        println!("effects factory: {:?}", effects.chain);
+        println!("lables: {:?}", knob_labels);
         FxChainFactory {
             chain: Arc::new(chain),
             initial_cc: initial_knobs,
