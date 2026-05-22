@@ -44,6 +44,11 @@ pub struct SynthMsg {
     pub speaker: Speaker,
 }
 
+struct Buffers {
+    output: BufferVec,
+    input: BufferVec,
+}
+
 impl SynthMsg {
     /// Returns MIDI `All Notes Off` message. This releases all current sounds.
     pub fn all_notes_off(speaker: Speaker) -> Self {
@@ -273,7 +278,6 @@ trait DubleSpeaker<const N: usize> {
         // 2. Query the device's supported buffer size range
         let buffer_size_range = default_config.buffer_size();
 
-        // 3. Choose a valid buffer size based on the hardware's report
         let buffer_size = match buffer_size_range {
             // If the device reports a min/max range, pick a value in between
             SupportedBufferSize::Range { min, max } => {
@@ -357,28 +361,36 @@ trait DubleSpeaker<const N: usize> {
         }
     }
 
-    fn get_stream_old<T: Sample + SizedSample + FromSample<f32>>(
-        &mut self,
-        config: &StreamConfig,
-        device: &Device,
-    ) -> anyhow::Result<Stream> {
-        let sample_rate = config.sample_rate as f64;
-        let mut sound = self.sound();
-        sound.reset();
-        sound.set_sample_rate(sample_rate);
-        let mut next_value = move || sound.get_stereo();
-        let channels = config.channels as usize;
-        let err_fn = |err| eprintln!("Error on stream: {err}");
-        device
-            .build_output_stream(
-                config,
-                move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-                    write_data(data, channels, &mut next_value)
-                },
-                err_fn,
-                None,
-            )
-            .or_else(|err| bail!("{err:?}"))
+    fn get_stream<T>(&mut self, config: &StreamConfig, device: &Device) -> anyhow::Result<Stream>
+    where
+        T: Sample + FromSample<f32> + SizedSample;
+}
+
+/// The default player that has one stereo stream in and one out (U2 inputs, U2 outputs)
+struct StereoPlayer<const N: usize> {
+    center_source: VoiceManager<N>,
+    buffers: Buffers,
+}
+
+impl<const N: usize> DubleSpeaker<N> for StereoPlayer<N> {
+    fn new(patch_table: Arc<PatchTable>, config: GlobalConfig) -> Self {
+        let center_source = VoiceManager::<N>::new(patch_table.clone(), config);
+        Self {
+            center_source,
+            buffers: Buffers {
+                output: BufferVec::new(2),
+                input: BufferVec::new(2),
+            },
+        }
+    }
+
+    fn sound(&mut self) -> Net {
+        self.center_source.sound()
+    }
+
+    fn decode(&mut self, _speaker: Speaker, msg: &MidiMsg) -> Option<RelayedMessage> {
+        let result = None;
+        result.or(self.center_source.decode(msg))
     }
 
     fn get_stream<T>(&mut self, config: &StreamConfig, device: &Device) -> anyhow::Result<Stream>
@@ -389,20 +401,18 @@ trait DubleSpeaker<const N: usize> {
         let mut sound = self.sound();
         sound.reset();
         sound.set_sample_rate(sample_rate);
-
+        let input_buffer = self.buffers.input.clone();
+        let mut output_buffer = self.buffers.output.clone();
         let mut next_block = move |block: &mut [(f32, f32)], n_frames: usize| {
-            let mut input_buffer = BufferVec::new(2);
-            let mut output_buffer = BufferVec::new(2);
-
             sound.process(
                 n_frames,
                 &input_buffer.buffer_ref(),
                 &mut output_buffer.buffer_mut(),
             );
-
-            // Copy the results into the output slice
-            for i in 0..n_frames {
-                block[i] = (output_buffer.at_f32(0, i), output_buffer.at_f32(1, i));
+            for _ in 0..n_frames {
+                for i in 0..n_frames {
+                    block[i] = (output_buffer.at_f32(0, i), output_buffer.at_f32(1, i));
+                }
             }
         };
 
@@ -421,27 +431,6 @@ trait DubleSpeaker<const N: usize> {
                 None,
             )
             .or_else(|err| bail!("{err:?}"))
-    }
-}
-
-/// The default player that has one stereo stream in and one out (U2 inputs, U2 outputs)
-struct StereoPlayer<const N: usize> {
-    center_source: VoiceManager<N>,
-}
-
-impl<const N: usize> DubleSpeaker<N> for StereoPlayer<N> {
-    fn new(patch_table: Arc<PatchTable>, config: GlobalConfig) -> Self {
-        let center_source = VoiceManager::<N>::new(patch_table.clone(), config);
-        Self { center_source }
-    }
-
-    fn sound(&mut self) -> Net {
-        self.center_source.sound()
-    }
-
-    fn decode(&mut self, _speaker: Speaker, msg: &MidiMsg) -> Option<RelayedMessage> {
-        let result = None;
-        result.or(self.center_source.decode(msg))
     }
 }
 
