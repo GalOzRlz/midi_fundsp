@@ -459,7 +459,8 @@ pub fn get_first_midi_device(midi_in: &mut MidiInput) -> anyhow::Result<MidiInpu
         for (idx, port) in in_ports.iter().enumerate() {
             let current = midi_in.port_name(port);
             if let Ok(name) = current {
-                if !name.to_lowercase().contains("thru") {
+                if !name.to_lowercase().contains("thru") & !name.to_lowercase().contains("through")
+                {
                     device_name = Some(name);
                     let device_name =
                         device_name.ok_or_else(|| anyhow!("No usable MIDI device"))?;
