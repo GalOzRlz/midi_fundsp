@@ -1,5 +1,4 @@
 use crate::config_builder::{FreeVoiceStrategy, GlobalConfig, VoiceStealingConfig};
-use crate::effects::master_limiter;
 use crate::effects_builders::FxChainFactory;
 use crate::patch_builder::KnobGroup;
 use crate::{
@@ -15,9 +14,8 @@ use cpal::{
 use crossbeam_queue::SegQueue;
 use crossbeam_utils::atomic::AtomicCell;
 use fastrand::u8;
-use fundsp::buffer::BufferRef;
 use fundsp::prelude::U2;
-use fundsp::prelude64::{BufferMut, split};
+use fundsp::prelude64::{BufferVec, split};
 use fundsp::{
     Float,
     net::Net,
@@ -262,8 +260,6 @@ impl Speaker {
 trait DubleSpeaker<const N: usize> {
     fn new(patch_table: Arc<PatchTable>, config: GlobalConfig) -> Self;
 
-    fn set_midi_to_hz(&mut self, midi_to_hz: fn(f32) -> f32);
-
     fn sound(&mut self) -> Net;
 
     fn run_output(&mut self, midi_msgs: Arc<SegQueue<SynthMsg>>) -> anyhow::Result<()> {
@@ -318,14 +314,12 @@ trait DubleSpeaker<const N: usize> {
         config: StreamConfig,
     ) -> anyhow::Result<()> {
         Self::warm_up(midi_msgs.clone());
-        let mut done = false;
-        while !done {
-            let stream = self.get_stream::<T>(&config, &device)?;
-            stream.play()?;
-            if self.handle_messages(midi_msgs.clone()) == RelayedMessage::SystemReset {
-                done = true;
-            }
+        let stream = self.get_stream::<T>(&config, &device)?;
+        stream.play()?;
+        while self.handle_messages(midi_msgs.clone()) != RelayedMessage::SystemReset {
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
+
         Ok(())
     }
 
@@ -396,14 +390,21 @@ trait DubleSpeaker<const N: usize> {
         sound.set_sample_rate(sample_rate);
 
         let mut next_block = move |block: &mut [(f32, f32)], n_frames: usize| {
-            // Create empty buffers
-            let mut output = BufferMut::empty();
-            // Process the block
-            sound.process(n_frames, &BufferRef::empty(), &mut output);
+            let mut input_buffer = BufferVec::new(2);
+            let mut output_buffer = BufferVec::new(2);
+            input_buffer.resize(n_frames);
+            output_buffer.resize(n_frames);
+            eprintln!("Inputs: {}, Outputs: {}", sound.inputs(), sound.outputs());
+            // Process the block – input_buffer is silent (all zeros)
+            sound.process(
+                n_frames,
+                &input_buffer.buffer_ref(),
+                &mut output_buffer.buffer_mut(),
+            );
 
-            // Copy results into the output slice
+            // Copy the results into the output slice
             for i in 0..n_frames {
-                block[i] = (output.at(0, i).to_f32(), output.at(1, i).to_f32());
+                block[i] = (output_buffer.at_f32(0, i), output_buffer.at_f32(1, i));
             }
         };
 
@@ -434,10 +435,6 @@ impl<const N: usize> DubleSpeaker<N> for StereoPlayer<N> {
     fn new(patch_table: Arc<PatchTable>, config: GlobalConfig) -> Self {
         let center_source = VoiceManager::<N>::new(patch_table.clone(), config);
         Self { center_source }
-    }
-
-    fn set_midi_to_hz(&mut self, midi_to_hz: fn(f32) -> f32) {
-        self.center_source.set_midi_to_hz(midi_to_hz);
     }
 
     fn sound(&mut self) -> Net {
@@ -652,7 +649,7 @@ impl<const N: usize> VoiceManager<N> {
             }
             _ => panic!("Unsupported output count on synth! use either U1 (mono) or U2 (stereo)"),
         };
-        mix >> master_limiter() >> self.master_fx_net.clone()
+        mix //>> master_limiter() >> self.master_fx_net.clone()
     }
 
     fn decode(&mut self, msg: &MidiMsg) -> Option<RelayedMessage> {
