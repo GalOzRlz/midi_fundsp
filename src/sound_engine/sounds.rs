@@ -50,10 +50,10 @@
 // register_sound!("chorused_dirty_guitar", chorused_dirty_guitar);
 // register_sound!("plastic_pipe", plastic_pipe);
 
-use crate::SoundBuilder;
-use crate::SoundEntry;
 use crate::common_definitions::params::{ParamInfo, Parameterized};
 use crate::sound_engine::params::TwoOscMorphParams;
+use crate::sound_engine::sound_building::SoundBuilder;
+use crate::sound_engine::sound_building::SoundEntry;
 use crate::{SharedMidiState, register_sound};
 use fundsp::audiounit::AudioUnit;
 use fundsp::prelude64::*;

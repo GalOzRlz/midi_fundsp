@@ -2,9 +2,9 @@ use crossbeam_queue::SegQueue;
 use crossbeam_utils::atomic::AtomicCell;
 use midir::MidiInput;
 use nabi_core::config_builder::{create_ordered_patch_table, load_global_config};
-use nabi_core::io::get_first_midi_device;
+use nabi_core::tui::{console_choice_from, get_first_midi_device};
 use nabi_core::{
-    io::{Speaker, SynthMsg, console_choice_from, start_input_thread, start_output_thread},
+    io::{Speaker, SynthMsg, start_input_thread, start_output_thread},
     patch_builder::PatchTable,
 };
 use std::sync::Arc;

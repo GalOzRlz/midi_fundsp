@@ -1,6 +1,6 @@
-use crate::SynthFactory;
 use crate::effects::effects_building::FxChainFactory;
 use crate::patch_builder::{PatchDef, PatchTable};
+use crate::sound_engine::sound_building::SoundFactory;
 use crate::tunings::{TunerBuilder, TunerEntry};
 use fundsp::math::midi_hz;
 use serde::Deserialize;
@@ -199,7 +199,7 @@ pub fn build_patch_table(programs: &[TomlPatchDef], global_config: &GlobalConfig
 
         // --- assemble PatchDef ---
         let patch_def = PatchDef {
-            sound_factory: SynthFactory::new(
+            sound_factory: SoundFactory::new(
                 prog.function.as_str(),
                 prog.config.clone().unwrap_or_default(),
                 sound_cc_count,

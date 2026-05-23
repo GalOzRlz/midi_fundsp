@@ -23,11 +23,11 @@ pub mod io;
 pub mod patch_builder;
 mod patch_helpers;
 mod sound_engine;
+pub mod tui;
 pub mod tunings;
 
 use crate::config_builder::MAX_KNOBS_PER_GROUP;
 use crate::helpers::cc::cc_smooth;
-use crate::patch_builder::{KnobGroup, KnobLabel, SoundBuilder, SoundEntry};
 use crate::patch_helpers::Adsr;
 use crate::tunings::TunerBuilder;
 use fundsp::audionode::Pipe;
@@ -39,12 +39,10 @@ use fundsp::prelude64::{adsr_live, shared, var};
 use fundsp::shared::{Shared, Var};
 use midi_msg::MidiMsg;
 use serde::de::DeserializeOwned;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::ops::Index;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use toml::Table;
 
 /// MIDI values for pitch and velocity range from 0 to 127.
 pub const MAX_MIDI_VALUE: u8 = 127;
@@ -57,87 +55,6 @@ pub const CONTROL_ON: f32 = 1.0;
 
 /// Control value in response to `Note Off` event.
 pub const CONTROL_OFF: f32 = -1.0;
-
-/// `SynthFunc` objects translate `SharedMidiState` values into [fundsp](https://crates.io/crates/fundsp) audio graphs.
-pub type SynthFunc = Arc<dyn Fn(&SharedMidiState) -> Box<dyn AudioUnit> + Send + Sync>;
-
-pub trait FromTable: Sized {
-    fn from_table(table: &Table) -> Self;
-}
-
-impl<T> FromTable for T
-where
-    T: DeserializeOwned + Default,
-{
-    fn from_table(table: &Table) -> Self {
-        let value: toml::Value = table.clone().into();
-        T::deserialize(value).unwrap_or_default()
-    }
-}
-
-#[derive(Clone)]
-pub struct SynthFactory {
-    pub builder: SoundBuilder,
-    pub knob_labels: Vec<KnobLabel>,
-    pub config: Table,
-    pub initial_cc: Vec<f32>,
-}
-
-impl SynthFactory {
-    pub fn new(builder_func_name: &str, config: Table, sound_cc_count: usize) -> Self {
-        let registry: HashMap<&str, &SoundEntry> = inventory::iter::<SoundEntry>()
-            .map(|e| (e.name, e))
-            .collect();
-        let entry = registry
-            .get(builder_func_name)
-            .expect("synth with stated function name doesn't exist!");
-        let builder = entry.builder.to_owned();
-        let mut knob_labels = Vec::new();
-        let mut knob_map = HashMap::new();
-        for (param_name, default_knob) in entry.cc_params.iter() {
-            let mut knob = *default_knob;
-
-            // Clamp or should we ignore?
-            if knob < 1 {
-                knob = 1;
-            }
-            if knob > sound_cc_count {
-                knob = sound_cc_count;
-            }
-
-            knob_map.insert(param_name.to_string(), knob);
-
-            knob_labels.push(KnobLabel {
-                group: KnobGroup::Sound,
-                index: knob,
-                label: format!("{}: {}", param_name, param_name),
-            })
-        }
-        let mut lables = knob_labels.clone();
-        let mut initial_knobs = vec![0.0_f32; sound_cc_count.max(1)];
-        for v in config.iter() {
-            let c_label = v.0;
-            for l in lables.iter_mut() {
-                if l.label == *c_label {
-                    // cc is 1-...
-                    initial_knobs[l.index - 1] = v.1.as_float().expect("illegal value!") as f32
-                }
-            }
-        }
-        Self {
-            builder,
-            knob_labels,
-            config: config.clone(),
-            initial_cc: initial_knobs,
-        }
-    }
-
-    pub fn build(&self) -> SynthFunc {
-        let function = self.builder.clone();
-        let config = self.config.clone();
-        Arc::new(move |state: &SharedMidiState| -> Box<dyn AudioUnit> { function(state, &config) })
-    }
-}
 
 /// `SharedMidiState` objects represent as [fundsp `Shared` atomic variables](https://docs.rs/fundsp/latest/fundsp/shared/struct.Shared.html)
 /// the following MIDI events:

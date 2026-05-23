@@ -2,9 +2,8 @@ use crate::config_builder::{FreeVoiceStrategy, GlobalConfig, VoiceStealingConfig
 use crate::effects::effects_building::FxChainFactory;
 use crate::effects::master_fx::master_limiter;
 use crate::patch_builder::KnobGroup;
-use crate::{
-    NUM_MIDI_VALUES, SharedMidiState, SynthFunc, note_velocity_from, patch_builder::PatchTable,
-};
+use crate::sound_engine::sound_building::SynthFunc;
+use crate::{NUM_MIDI_VALUES, SharedMidiState, note_velocity_from, patch_builder::PatchTable};
 use anyhow::{anyhow, bail};
 use bare_metal_modulo::*;
 use cpal::{
@@ -26,8 +25,7 @@ use fundsp::{
 };
 use midi_msg::ControlChange::CC;
 use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, MidiMsg, SystemRealTimeMsg};
-use midir::{Ignore, MidiInput, MidiInputPort};
-use read_input::{InputBuild, shortcut::input};
+use midir::{MidiInput, MidiInputPort};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -434,79 +432,6 @@ impl<const N: usize> DubleSpeaker<N> for StereoPlayer<N> {
     }
 }
 
-/// Presents a list of items to be selected via console input. Used in multiple
-/// [example](https://github.com/gjf2a/nabi_core/tree/master/examples) programs.
-pub fn console_choice_from<T, F: Fn(&T) -> &str>(
-    prompt: &str,
-    choices: &Vec<T>,
-    prompt_func: F,
-) -> usize {
-    for i in 0..choices.len() {
-        println!("{}: {}", i + 1, prompt_func(&choices[i]));
-    }
-    let prompt = format!("{prompt}: ");
-    input().msg(prompt).inside(1..=choices.len()).get() - 1
-}
-
-/// Returns a handle to the first MIDI device detected.
-pub fn get_first_midi_device(midi_in: &mut MidiInput) -> anyhow::Result<MidiInputPort> {
-    midi_in.ignore(Ignore::None);
-    let in_ports = midi_in.ports();
-    let mut device_name = None;
-    if in_ports.is_empty() {
-        bail!("No MIDI devices attached")
-    } else {
-        for (idx, port) in in_ports.iter().enumerate() {
-            let current = midi_in.port_name(port);
-            if let Ok(name) = current {
-                if !name.to_lowercase().contains("thru") & !name.to_lowercase().contains("through")
-                {
-                    device_name = Some(name);
-                    let device_name =
-                        device_name.ok_or_else(|| anyhow!("No usable MIDI device"))?;
-                    println!("Chose MIDI device {device_name}");
-                    return Ok(in_ports[idx].clone());
-                }
-            }
-        }
-        Err(anyhow!("No MIDI devices found"))
-    }
-}
-
-/// Allows selecting a MIDI device via the console from a complete list of MIDI devices.
-/// The basic concept can be a model of how to do this in a GUI setting.
-pub fn choose_midi_device(midi_in: &mut MidiInput) -> anyhow::Result<MidiInputPort> {
-    midi_in.ignore(Ignore::None);
-    let in_ports = midi_in.ports();
-    match in_ports.len() {
-        0 => bail!("No MIDI devices attached"),
-        1 => get_first_midi_device(midi_in),
-        _ => {
-            let mut choices = vec![];
-            for port in in_ports.iter() {
-                choices.push((midi_in.port_name(port)?, port));
-            }
-            let c = console_choice_from("Select MIDI Device", &choices, |choice| choice.0.as_str());
-            Ok(choices[c].1.clone())
-        }
-    }
-}
-
-fn write_data<T: Sample + FromSample<f32>>(
-    output: &mut [T],
-    channels: usize,
-    next_sample: &mut dyn FnMut() -> (f32, f32),
-) {
-    for frame in output.chunks_mut(channels) {
-        let sample = next_sample();
-        let left: T = Sample::from_sample::<f32>(sample.0);
-        let right: T = Sample::from_sample::<f32>(sample.1);
-
-        for (channel, sample) in frame.iter_mut().enumerate() {
-            *sample = if channel & 1 == 0 { left } else { right };
-        }
-    }
-}
 fn write_data_block<T: Sample + FromSample<f32>>(
     output: &mut [T],
     channels: usize,
@@ -562,7 +487,12 @@ struct VoiceManager<const N: usize> {
 
 impl<const N: usize> VoiceManager<N> {
     fn new(patch_table: Arc<PatchTable>, config: GlobalConfig) -> Self {
-        // Build CC → knob mapping
+        let mut s = VoiceManager::<N>::from_patch_table(patch_table, config, 0);
+        s.change_patch(&0);
+        s
+    }
+
+    fn from_patch_table(patch_table: Arc<PatchTable>, config: GlobalConfig, index: usize) -> Self {
         let mut cc_to_knob = HashMap::new();
         for (i, &cc) in config.sound_cc_mapping.iter().enumerate() {
             cc_to_knob.insert(cc, (KnobGroup::Sound, i));
@@ -574,7 +504,7 @@ impl<const N: usize> VoiceManager<N> {
         let sound_len = config.sound_cc_mapping.len().max(1);
         let effect_len = config.fx_cc_mapping.len().max(1);
 
-        let first_table = &patch_table.clone().entries[0];
+        let first_table = &patch_table.clone().entries[index];
         let synth_func = first_table.sound_factory.build();
         let fx_cc_array = first_table.effects.initial_cc.clone();
         let sound_cc_array = first_table.sound_factory.initial_cc.clone();
@@ -590,7 +520,7 @@ impl<const N: usize> VoiceManager<N> {
             )
         });
         let master_fx_net = first_table.effects.clone().build(&states[0].clone());
-        let mut s = Self {
+        Self {
             states,
             next: ModNumC::new(0),
             pitch2state: [None; NUM_MIDI_VALUES],
@@ -605,11 +535,8 @@ impl<const N: usize> VoiceManager<N> {
             cc_to_knob,
             current_patch_num: 0,
             master_fx_net,
-        };
-        s.apply_init_cc_vals();
-        s
+        }
     }
-
     fn set_midi_to_hz(&mut self, midi_to_hz: fn(f32) -> f32) {
         for i in 0..self.states.len() {
             self.states[i].set_midi_to_hz(midi_to_hz);

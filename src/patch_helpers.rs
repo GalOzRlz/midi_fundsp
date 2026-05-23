@@ -1,17 +1,4 @@
-use crate::SharedMidiState;
-use fundsp::audiounit::AudioUnit;
-use fundsp::math::clamp01;
-use fundsp::prelude64::envelope2;
 use fundsp::shared::Shared;
-
-/// Pipes a pitch into `synth`, then modulates the output volume depending on MIDI status.
-pub fn simple_sound(state: &SharedMidiState, synth: Box<dyn AudioUnit>) -> Box<dyn AudioUnit> {
-    let control = state.control_var();
-    state.assemble_unpitched_sound(
-        synth,
-        Box::new(control >> envelope2(move |_, n| clamp01(n))),
-    )
-}
 
 #[derive(Clone)]
 /// Represents ADSR (Attack/Decay/Sustain/Release) settings for the purpose of generating MIDI-ready sounds.
@@ -21,6 +8,7 @@ pub struct Adsr {
     pub sustain: Shared,
     pub release: Shared,
 }
+
 impl Default for Adsr {
     fn default() -> Self {
         Self {
@@ -38,5 +26,11 @@ impl Adsr {
         self.decay.set_value(decay);
         self.sustain.set_value(sustain);
         self.release.set_value(release);
+    }
+
+    pub fn new(attack: f32, decay: f32, sustain: f32, release: f32) -> Self {
+        let s = Adsr::default();
+        s.configure(attack, decay, sustain, release);
+        s
     }
 }
