@@ -4,8 +4,8 @@ use midir::MidiInput;
 use nabi_core::config_builder::{create_ordered_patch_table, load_global_config};
 use nabi_core::tui::{console_choice_from, get_first_midi_device};
 use nabi_core::{
-    io::{Speaker, SynthMsg, start_input_thread, start_output_thread},
     patch_builder::PatchTable,
+    synthio::{Speaker, SynthMsg, start_input_thread, start_output_thread},
 };
 use std::sync::Arc;
 use std::thread::sleep;

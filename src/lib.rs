@@ -19,10 +19,10 @@ pub mod config_builder;
 mod effects;
 pub mod experimental;
 mod helpers;
-pub mod io;
 pub mod patch_builder;
 mod patch_helpers;
 mod sound_engine;
+pub mod synthio;
 pub mod tui;
 pub mod tunings;
 

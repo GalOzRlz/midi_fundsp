@@ -201,7 +201,7 @@ pub fn start_output_thread<const N: usize>(
     let cnf = config.unwrap_or_default();
     println!("{:?}", cnf);
     std::thread::spawn(move || {
-        let mut player = StereoPlayer::<N>::new(patch_table, cnf);
+        let mut player = SynthPlayer::<N>::new(patch_table, cnf);
         player.run_output(midi_msgs).unwrap();
     });
 }
@@ -222,12 +222,12 @@ pub fn start_midi_output_thread<const N: usize>(
     config: Option<GlobalConfig>,
 ) {
     let cnf = config.unwrap_or_default();
-    inner_start_output_thread(midi_msgs, StereoPlayer::<N>::new(patch_table, cnf));
+    inner_start_output_thread(midi_msgs, SynthPlayer::<N>::new(patch_table, cnf));
 }
 
 fn inner_start_output_thread<const N: usize>(
     midi_msgs: Arc<SegQueue<MidiMsg>>,
-    mut player: StereoPlayer<N>,
+    mut player: SynthPlayer<N>,
 ) {
     let relay_out = Arc::new(SegQueue::new());
     let relay_in = relay_out.clone();
@@ -365,12 +365,12 @@ trait DubleSpeaker<const N: usize> {
 }
 
 /// The default player that has one stereo stream in and one out (U2 inputs, U2 outputs)
-struct StereoPlayer<const N: usize> {
+struct SynthPlayer<const N: usize> {
     center_source: VoiceManager<N>,
     buffers: Buffers,
 }
 
-impl<const N: usize> DubleSpeaker<N> for StereoPlayer<N> {
+impl<const N: usize> DubleSpeaker<N> for SynthPlayer<N> {
     fn new(patch_table: Arc<PatchTable>, config: GlobalConfig) -> Self {
         let center_source = VoiceManager::<N>::new(patch_table.clone(), config);
         Self {
@@ -466,7 +466,7 @@ enum RelayedMessage {
     SystemReset,
 }
 
-/// Single sound emitter that decodes midi and manages voices - used by StereoPlayer and LRPlayer to manage output.
+/// Single sound emitter that decodes midi and manages voices - used by SynthPlayer and LRPlayer to manage output.
 #[derive(Clone)]
 struct VoiceManager<const N: usize> {
     states: [SharedMidiState; N],
