@@ -14,11 +14,11 @@ use cpal::{
 use crossbeam_queue::SegQueue;
 use crossbeam_utils::atomic::AtomicCell;
 use fastrand::u8;
-use fundsp::prelude::U2;
-use fundsp::prelude64::{BufferVec, split};
+use fundsp::prelude::{NetBackend, U2};
+use fundsp::prelude32::Net;
+use fundsp::prelude64::{BufferVec, Fade, NodeId, split};
 use fundsp::{
     Float,
-    net::Net,
     prelude::AudioUnit,
     prelude64::{shared, var},
     shared::Shared,
@@ -27,6 +27,7 @@ use midi_msg::ControlChange::CC;
 use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, MidiMsg, SystemRealTimeMsg};
 use midir::{MidiInput, MidiInputPort};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 enum PatchButton {
@@ -396,7 +397,7 @@ impl<const N: usize> DubleSpeaker<N> for SynthPlayer<N> {
         T: Sample + FromSample<f32> + SizedSample,
     {
         let sample_rate = config.sample_rate as f64;
-        let mut sound = self.sound();
+        let mut sound = self.center_source.mix_net_backend();
         sound.reset();
         sound.set_sample_rate(sample_rate);
         let input_buffer = self.buffers.input.clone();
@@ -462,7 +463,6 @@ fn write_data_block<T: Sample + FromSample<f32>>(
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum RelayedMessage {
-    SynthChange,
     SystemReset,
 }
 
@@ -478,7 +478,9 @@ struct VoiceManager<const N: usize> {
     patch_table: Arc<PatchTable>,
     config: GlobalConfig,
     effects: FxChainFactory,
-    master_fx_net: Net,
+    fx_node_id: NodeId,
+    sound_node_id: NodeId,
+    mix_net: Net,
     current_patch_num: usize,
     sound_cc_vals: Vec<f32>,
     fx_cc_vals: Vec<f32>,
@@ -487,12 +489,6 @@ struct VoiceManager<const N: usize> {
 
 impl<const N: usize> VoiceManager<N> {
     fn new(patch_table: Arc<PatchTable>, config: GlobalConfig) -> Self {
-        let mut s = VoiceManager::<N>::from_patch_table(patch_table, config, 0);
-        s.change_patch(&0);
-        s
-    }
-
-    fn from_patch_table(patch_table: Arc<PatchTable>, config: GlobalConfig, index: usize) -> Self {
         let mut cc_to_knob = HashMap::new();
         for (i, &cc) in config.sound_cc_mapping.iter().enumerate() {
             cc_to_knob.insert(cc, (KnobGroup::Sound, i));
@@ -500,15 +496,14 @@ impl<const N: usize> VoiceManager<N> {
         for (i, &cc) in config.fx_cc_mapping.iter().enumerate() {
             cc_to_knob.insert(cc, (KnobGroup::Effect, i));
         }
-
         let sound_len = config.sound_cc_mapping.len().max(1);
         let effect_len = config.fx_cc_mapping.len().max(1);
-
-        let first_table = &patch_table.clone().entries[index];
+        let first_table = &patch_table.clone().entries[0];
         let synth_func = first_table.sound_factory.build();
         let fx_cc_array = first_table.effects.initial_cc.clone();
         let sound_cc_array = first_table.sound_factory.initial_cc.clone();
         let tuner = first_table.tuning;
+        let mut master_fx_net = Net::new(2, 2);
 
         let states = [(); N].map(|_| {
             SharedMidiState::new(
@@ -519,7 +514,9 @@ impl<const N: usize> VoiceManager<N> {
                 tuner,
             )
         });
-        let master_fx_net = first_table.effects.clone().build(&states[0].clone());
+
+        let fx_node_id =
+            master_fx_net.chain(Box::new(first_table.effects.clone().build(&states[0])));
         Self {
             states,
             next: ModNumC::new(0),
@@ -534,7 +531,9 @@ impl<const N: usize> VoiceManager<N> {
             fx_cc_vals: vec![0.0; effect_len],
             cc_to_knob,
             current_patch_num: 0,
-            master_fx_net,
+            fx_node_id,
+            mix_net: Net::new(2, 2),
+            sound_node_id: NodeId::new(),
         }
     }
     fn set_midi_to_hz(&mut self, midi_to_hz: fn(f32) -> f32) {
@@ -551,6 +550,17 @@ impl<const N: usize> VoiceManager<N> {
         }
         false
     }
+    fn mix_net_backend(&mut self) -> NetBackend {
+        let backend = self.mix_net.backend();
+        let sound = self.sound();
+        self.sound_node_id = self.mix_net.chain(Box::new(sound));
+        self.fx_node_id = self
+            .mix_net
+            .chain(Box::new(self.effects.build(&self.states[0])));
+        self.mix_net.commit();
+        backend
+    }
+
     fn sound(&mut self) -> Net {
         let mut sound = Net::wrap(self.sound_at(0));
         if self.config.voice_release == FreeVoiceStrategy::ReleaseOnZero {
@@ -573,7 +583,7 @@ impl<const N: usize> VoiceManager<N> {
             }
             _ => panic!("Unsupported output count on synth! use either U1 (mono) or U2 (stereo)"),
         };
-        mix >> master_limiter() >> self.master_fx_net.clone()
+        mix >> master_limiter()
     }
 
     fn decode(&mut self, msg: &MidiMsg) -> Option<RelayedMessage> {
@@ -594,7 +604,6 @@ impl<const N: usize> VoiceManager<N> {
                 }
                 ChannelVoiceMsg::ProgramChange { program } => {
                     self.change_patch(program);
-                    return Some(RelayedMessage::SynthChange);
                 }
                 ChannelVoiceMsg::ControlChange {
                     control: CC { control, value },
@@ -745,11 +754,20 @@ impl<const N: usize> VoiceManager<N> {
         let table = self.patch_table.clone();
         if let Some(entry) = table.entries.get(*program as usize) {
             self.synth_func = entry.sound_factory.build();
-            self.effects = entry.effects.clone();
             let tuner = entry.tuning;
             self.set_midi_to_hz(tuner);
-            self.effects.build(&self.states[0]);
             self.current_patch_num = *program as usize;
+            let new_sound_net = self.sound();
+            let new_fx_net = entry.effects.clone().build(&self.states[0]); // todo: call directly
+            self.mix_net
+                .crossfade(self.fx_node_id, Fade::Smooth, 0.01, Box::new(new_fx_net));
+            self.mix_net.crossfade(
+                self.sound_node_id,
+                Fade::Smooth,
+                0.01,
+                Box::new(new_sound_net),
+            );
+            self.mix_net.commit();
             self.apply_init_cc_vals();
         }
     }

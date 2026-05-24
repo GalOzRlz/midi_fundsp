@@ -1,9 +1,9 @@
 use crate::SharedMidiState;
 use crate::common_definitions::params::ParamInfo;
 use crate::config_builder::TomlEffectSection;
-use crate::effects::helpers::connect_node_vec;
+use crate::effects::helpers::to_stereo;
 use crate::patch_builder::{KnobGroup, KnobLabel};
-use fundsp::prelude64::Net;
+use fundsp::prelude64::{Net, NodeId};
 use std::collections::HashMap;
 use std::sync::Arc;
 use toml::Table;
@@ -53,17 +53,30 @@ inventory::collect!(EffectDef);
 #[derive(Clone)]
 pub struct FxChainFactory {
     pub chain: Arc<Vec<EffectFunc>>,
-    pub initial_cc: Vec<f32>, // was CcValuesArray — now dynamic
+    pub initial_cc: Vec<f32>,
     pub knob_labels: Vec<KnobLabel>,
+    pub node_ids: Option<Vec<NodeId>>,
 }
 
 impl FxChainFactory {
+    pub fn connect_node_vec(&mut self, node_vec: Arc<Vec<Net>>) -> Net {
+        let mut nodeid_vec: Vec<NodeId> = Vec::with_capacity(node_vec.len());
+        let nodes = (*node_vec).clone();
+        let mut net = Net::new(2, 2);
+        for node in nodes {
+            let id = net.chain(Box::new(to_stereo(node)));
+            nodeid_vec.push(id)
+        }
+        self.node_ids = Some(nodeid_vec);
+        net
+    }
+
     pub fn build(&mut self, shared_midi_state: &SharedMidiState) -> Net {
         println!("knob lables: {:?}", self.knob_labels);
         println!("initial cc: {:?}", self.initial_cc);
         let arc_vec: Arc<Vec<Net>> =
             Arc::new(self.chain.iter().map(|fx| fx(shared_midi_state)).collect());
-        connect_node_vec(arc_vec, None)
+        self.connect_node_vec(arc_vec)
     }
     pub fn new(
         effects_config: Option<&TomlEffectSection>,
@@ -80,6 +93,7 @@ impl FxChainFactory {
                 chain: Arc::new(Vec::new()),
                 initial_cc: vec![0.0; effect_cc_count.max(1)],
                 knob_labels: Vec::new(),
+                node_ids: None,
             };
         };
         let mut initial_knobs = vec![0.0_f32; effect_cc_count.max(1)];
@@ -158,6 +172,7 @@ impl FxChainFactory {
             chain: Arc::new(chain),
             initial_cc: initial_knobs,
             knob_labels,
+            node_ids: None,
         }
     }
 }
