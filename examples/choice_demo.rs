@@ -2,8 +2,8 @@ use crossbeam_queue::SegQueue;
 use crossbeam_utils::atomic::AtomicCell;
 use midir::MidiInput;
 use nabi_core::config_builder::{create_ordered_patch_table, load_global_config};
-use nabi_core::io::synth::{Speaker, SynthMsg};
-use nabi_core::io::threads::{start_input_thread, start_output_thread};
+use nabi_core::ios::synth::SynthMsg;
+use nabi_core::ios::threads::{start_input_thread, start_output_thread};
 use nabi_core::patch_builder::PatchTable;
 use nabi_core::tui::{console_choice_from, get_first_midi_device};
 use std::sync::Arc;
@@ -60,7 +60,7 @@ fn run_chooser(
                         opt.name.as_str()
                     })
                 };
-                midi_msgs.push(SynthMsg::patch_change(program as u8, Speaker::Both));
+                midi_msgs.push(SynthMsg::patch_change(program as u8));
             }
             1 => reset.store(true),
             2 => *quit = true,

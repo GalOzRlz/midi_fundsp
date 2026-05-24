@@ -1,6 +1,6 @@
 use crate::config_builder::GlobalConfig;
-use crate::io::midi::SynthMsg;
-use crate::io::synth::{Speaker, Synth};
+use crate::ios::midi::SynthMsg;
+use crate::ios::synth::{Synth, SynthPlayer};
 use crate::patch_builder::PatchTable;
 use crossbeam_queue::SegQueue;
 use crossbeam_utils::atomic::AtomicCell;
@@ -23,11 +23,8 @@ pub fn start_input_thread(
     quit: Arc<AtomicCell<bool>>,
 ) {
     start_generic_input_thread(
-        |msg| SynthMsg {
-            msg,
-            speaker: Speaker::Both,
-        },
-        SynthMsg::system_reset(Speaker::Both),
+        |msg| SynthMsg { msg },
+        SynthMsg::system_reset(),
         midi_msgs,
         midi_in,
         in_port,
@@ -112,7 +109,7 @@ pub fn start_output_thread<const N: usize>(
     let cnf = config.unwrap_or_default();
     println!("{:?}", cnf);
     std::thread::spawn(move || {
-        let mut player = crate::io::synth::SynthPlayer::<N>::new(patch_table, cnf);
+        let mut player = SynthPlayer::<N>::new(patch_table, cnf);
         player.run_output(midi_msgs).unwrap();
     });
 }
@@ -133,25 +130,19 @@ pub fn start_midi_output_thread<const N: usize>(
     config: Option<GlobalConfig>,
 ) {
     let cnf = config.unwrap_or_default();
-    inner_start_output_thread(
-        midi_msgs,
-        crate::io::synth::SynthPlayer::<N>::new(patch_table, cnf),
-    );
+    inner_start_output_thread(midi_msgs, SynthPlayer::<N>::new(patch_table, cnf));
 }
 
 fn inner_start_output_thread<const N: usize>(
     midi_msgs: Arc<SegQueue<MidiMsg>>,
-    mut player: crate::io::synth::SynthPlayer<N>,
+    mut player: SynthPlayer<N>,
 ) {
     let relay_out = Arc::new(SegQueue::new());
     let relay_in = relay_out.clone();
     std::thread::spawn(move || {
         loop {
             if let Some(msg) = midi_msgs.pop() {
-                relay_out.push(SynthMsg {
-                    msg,
-                    speaker: Speaker::Both,
-                })
+                relay_out.push(SynthMsg { msg })
             }
         }
     });

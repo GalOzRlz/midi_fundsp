@@ -8,7 +8,7 @@
 //!   converted into `SharedMidiState` objects that translate the sounds represented by those messages into
 //!   [fundsp `Shared` atomic variables](https://docs.rs/fundsp/0.10.0/fundsp/audionode/struct.Shared.html).
 //!   * `SynthFunc` functions translate `SharedMidiState` objects into specific [fundsp](https://crates.io/crates/fundsp) audio graphs.
-//! * The `io` module contains functions and data types for obtaining messages from MIDI devices and playing  
+//! * The `ios` module contains functions and data types for obtaining messages from MIDI devices and playing  
 //!   [fundsp](https://crates.io/crates/fundsp) audio graphs through the computer's speakers.
 //! * The `sound_builders` module contains functions that wrap [fundsp](https://crates.io/crates/fundsp) audio graphs
 //!   into `SynthFunc` functions with a variety of properties.
@@ -19,7 +19,7 @@ pub mod config_builder;
 mod effects;
 pub mod experimental;
 mod helpers;
-pub mod io;
+pub mod ios;
 pub mod patch_builder;
 mod patch_helpers;
 mod sound_engine;

@@ -1,4 +1,3 @@
-use crate::io::synth::Speaker;
 use crate::note_velocity_from;
 use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, MidiMsg, SystemRealTimeMsg};
 
@@ -9,45 +8,42 @@ pub enum PatchButton {
 
 impl SynthMsg {
     /// Returns MIDI `All Notes Off` message. This releases all current sounds.
-    pub fn all_notes_off(speaker: Speaker) -> Self {
-        Self::mode_msg(ChannelModeMsg::AllNotesOff, speaker)
+    pub fn all_notes_off() -> Self {
+        Self::mode_msg(ChannelModeMsg::AllNotesOff)
     }
 
     /// Returns MIDI `All Sound Off` message. This shuts off all current sounds immediately.
-    pub fn all_sound_off(speaker: Speaker) -> Self {
-        Self::mode_msg(ChannelModeMsg::AllSoundOff, speaker)
+    pub fn all_sound_off() -> Self {
+        Self::mode_msg(ChannelModeMsg::AllSoundOff)
     }
 
-    fn mode_msg(msg: ChannelModeMsg, speaker: Speaker) -> Self {
+    fn mode_msg(msg: ChannelModeMsg) -> Self {
         Self {
             msg: MidiMsg::ChannelMode {
                 channel: Channel::Ch1,
                 msg,
             },
-            speaker,
         }
     }
 
     /// Returns MIDI `System Reset` message.
-    pub fn system_reset(speaker: Speaker) -> Self {
-        Self::system_real_time_msg(SystemRealTimeMsg::SystemReset, speaker)
+    pub fn system_reset() -> Self {
+        Self::system_real_time_msg(SystemRealTimeMsg::SystemReset)
     }
 
-    fn system_real_time_msg(msg: SystemRealTimeMsg, speaker: Speaker) -> Self {
+    fn system_real_time_msg(msg: SystemRealTimeMsg) -> Self {
         Self {
             msg: MidiMsg::SystemRealTime { msg },
-            speaker,
         }
     }
 
     /// Returns MIDI `Program Change` message. This selects the synthesizer sound with the given index.
-    pub fn patch_change(program: u8, speaker: Speaker) -> Self {
+    pub fn patch_change(program: u8) -> Self {
         Self {
             msg: MidiMsg::ChannelVoice {
                 channel: Channel::Ch1,
                 msg: ChannelVoiceMsg::ProgramChange { program },
             },
-            speaker,
         }
     }
 
@@ -62,5 +58,4 @@ impl SynthMsg {
 /// corresponding to the message.
 pub struct SynthMsg {
     pub msg: MidiMsg,
-    pub speaker: Speaker,
 }

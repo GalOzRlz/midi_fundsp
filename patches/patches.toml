@@ -34,3 +34,4 @@ chain = ["reverb"]
 room_size = 8.8
 damping   = 0.5
 length    = 4.2
+wet_amount = 0.3

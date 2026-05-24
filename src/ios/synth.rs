@@ -1,7 +1,7 @@
 use crate::config_builder::{FreeVoiceStrategy, GlobalConfig, VoiceStealingConfig};
 use crate::effects::master_fx::master_limiter;
-use crate::io::midi::PatchButton;
-pub use crate::io::midi::SynthMsg;
+use crate::ios::midi::PatchButton;
+pub use crate::ios::midi::SynthMsg;
 use crate::patch_builder::KnobGroup;
 use crate::sound_engine::sound_building::SynthFunc;
 use crate::{NUM_MIDI_VALUES, SharedMidiState, patch_builder::PatchTable};
@@ -31,26 +31,12 @@ struct Buffers {
     output: BufferVec,
     input: BufferVec,
 }
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-/// Represents whether a sound should go to the left, right, or both speakers.
-pub enum Speaker {
-    Left,
-    Right,
-    Both,
-}
-
-impl Speaker {
-    /// Value for using a `Speaker` as an array index.
-    pub fn i(&self) -> usize {
-        *self as usize
-    }
-}
 pub trait Synth<const N: usize> {
     fn new(patch_table: Arc<PatchTable>, config: GlobalConfig) -> Self;
 
     fn run_output(&mut self, midi_msgs: Arc<SegQueue<SynthMsg>>) -> anyhow::Result<()>;
 
-    fn decode(&mut self, speaker: Speaker, msg: &MidiMsg) -> Option<RelayedMessage>;
+    fn decode(&mut self, msg: &MidiMsg) -> Option<RelayedMessage>;
     fn run_synth<T: Sample + SizedSample + FromSample<f32>>(
         &mut self,
         midi_msgs: Arc<SegQueue<SynthMsg>>,
@@ -86,14 +72,13 @@ pub trait Synth<const N: usize> {
                 channel: Channel::Ch1,
                 msg,
             },
-            speaker: Speaker::Both,
         }
     }
 
     fn handle_messages(&mut self, midi_msgs: Arc<SegQueue<SynthMsg>>) -> RelayedMessage {
         loop {
             if let Some(msg) = midi_msgs.pop()
-                && let Some(relayed) = self.decode(msg.speaker, &msg.msg)
+                && let Some(relayed) = self.decode(&msg.msg)
             {
                 return relayed;
             }
@@ -166,7 +151,7 @@ impl<const N: usize> Synth<N> for SynthPlayer<N> {
         }
     }
 
-    fn decode(&mut self, _speaker: Speaker, msg: &MidiMsg) -> Option<RelayedMessage> {
+    fn decode(&mut self, msg: &MidiMsg) -> Option<RelayedMessage> {
         let result = None;
         result.or(self.voice_manager.decode(msg))
     }

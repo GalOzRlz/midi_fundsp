@@ -67,9 +67,9 @@ pub struct ReverbParams {
 impl Default for ReverbParams {
     fn default() -> Self {
         Self {
-            room_size: 7.8,
-            damping: 0.5,
-            length: 3.5,
+            room_size: 3.8,
+            damping: 0.7,
+            length: 1.5,
         }
     }
 }
