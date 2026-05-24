@@ -19,10 +19,10 @@ pub mod config_builder;
 mod effects;
 pub mod experimental;
 mod helpers;
+pub mod io;
 pub mod patch_builder;
 mod patch_helpers;
 mod sound_engine;
-pub mod synthio;
 pub mod tui;
 pub mod tunings;
 
@@ -38,9 +38,7 @@ use fundsp::prelude::{An, AudioUnit, FrameMul};
 use fundsp::prelude64::{adsr_live, shared, var};
 use fundsp::shared::{Shared, Var};
 use midi_msg::MidiMsg;
-use serde::de::DeserializeOwned;
 use std::fmt::Debug;
-use std::ops::Index;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

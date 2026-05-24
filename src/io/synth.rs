@@ -1,8 +1,10 @@
 use crate::config_builder::{FreeVoiceStrategy, GlobalConfig, VoiceStealingConfig};
 use crate::effects::master_fx::master_limiter;
+use crate::io::midi::PatchButton;
+pub use crate::io::midi::SynthMsg;
 use crate::patch_builder::KnobGroup;
 use crate::sound_engine::sound_building::SynthFunc;
-use crate::{NUM_MIDI_VALUES, SharedMidiState, note_velocity_from, patch_builder::PatchTable};
+use crate::{NUM_MIDI_VALUES, SharedMidiState, patch_builder::PatchTable};
 use anyhow::{anyhow, bail};
 use bare_metal_modulo::*;
 use cpal::{
@@ -11,242 +13,24 @@ use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use crossbeam_queue::SegQueue;
-use crossbeam_utils::atomic::AtomicCell;
-use fastrand::u8;
 use fundsp::prelude::{NetBackend, U2};
 use fundsp::prelude32::Net;
 use fundsp::prelude64::{BufferVec, Fade, NodeId, split};
 use fundsp::{
-    Float,
     prelude::AudioUnit,
     prelude64::{shared, var},
     shared::Shared,
 };
 use midi_msg::ControlChange::CC;
 use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, MidiMsg, SystemRealTimeMsg};
-use midir::{MidiInput, MidiInputPort};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
-
-enum PatchButton {
-    Right,
-    Left,
-}
-
-#[derive(Clone, Debug)]
-/// Packages a [`MidiMsg`](https://crates.io/crates/midi-msg) with a designated `Speaker` to output the sound
-/// corresponding to the message.
-pub struct SynthMsg {
-    pub msg: MidiMsg,
-    pub speaker: Speaker,
-}
 
 struct Buffers {
     output: BufferVec,
     input: BufferVec,
 }
-
-impl SynthMsg {
-    /// Returns MIDI `All Notes Off` message. This releases all current sounds.
-    pub fn all_notes_off(speaker: Speaker) -> Self {
-        Self::mode_msg(ChannelModeMsg::AllNotesOff, speaker)
-    }
-
-    /// Returns MIDI `All Sound Off` message. This shuts off all current sounds immediately.
-    pub fn all_sound_off(speaker: Speaker) -> Self {
-        Self::mode_msg(ChannelModeMsg::AllSoundOff, speaker)
-    }
-
-    fn mode_msg(msg: ChannelModeMsg, speaker: Speaker) -> Self {
-        Self {
-            msg: MidiMsg::ChannelMode {
-                channel: midi_msg::Channel::Ch1,
-                msg,
-            },
-            speaker,
-        }
-    }
-
-    /// Returns MIDI `System Reset` message.
-    pub fn system_reset(speaker: Speaker) -> Self {
-        Self::system_real_time_msg(SystemRealTimeMsg::SystemReset, speaker)
-    }
-
-    fn system_real_time_msg(msg: SystemRealTimeMsg, speaker: Speaker) -> Self {
-        Self {
-            msg: MidiMsg::SystemRealTime { msg },
-            speaker,
-        }
-    }
-
-    /// Returns MIDI `Program Change` message. This selects the synthesizer sound with the given index.
-    pub fn patch_change(program: u8, speaker: Speaker) -> Self {
-        Self {
-            msg: MidiMsg::ChannelVoice {
-                channel: midi_msg::Channel::Ch1,
-                msg: ChannelVoiceMsg::ProgramChange { program },
-            },
-            speaker,
-        }
-    }
-
-    /// Returns MIDI note and velocity information if pertinent
-    pub fn note_velocity(&self) -> Option<(u8, u8)> {
-        note_velocity_from(&self.msg)
-    }
-}
-
-/// Starts a thread that monitors MIDI input events from the source specified by `in_port`. Each message received is
-/// stored in a `SynthMsg` object and placed in the `midi_msgs` queue.
-///
-/// If `true` is stored in `quit`, the thread exits and it sends a MIDI `SystemReset` message.
-/// If `print_incoming_msg` is `true`, each incoming MIDI message will be printed to the console.
-///
-/// The functions `get_first_midi_device()` and `choose_midi_device()` are examples of how to
-/// select a value for `in_port`.
-pub fn start_input_thread(
-    midi_msgs: Arc<SegQueue<SynthMsg>>,
-    midi_in: MidiInput,
-    in_port: MidiInputPort,
-    quit: Arc<AtomicCell<bool>>,
-) {
-    start_generic_input_thread(
-        |msg| SynthMsg {
-            msg,
-            speaker: Speaker::Both,
-        },
-        SynthMsg::system_reset(Speaker::Both),
-        midi_msgs,
-        midi_in,
-        in_port,
-        quit,
-    )
-}
-
-/// Starts a thread that monitors MIDI input events from the source specified by `in_port`. Each `MidiMsg` object
-/// received is placed in the `midi_msgs` queue.
-///
-/// If `true` is stored in `quit`, the thread exits and it sends a MIDI `SystemReset` message.
-/// If `print_incoming_msg` is `true`, each incoming MIDI message will be printed to the console.
-///
-/// The functions `get_first_midi_device()` and `choose_midi_device()` are examples of how to
-/// select a value for `in_port`.
-pub fn start_midi_input_thread(
-    midi_msgs: Arc<SegQueue<MidiMsg>>,
-    midi_in: MidiInput,
-    in_port: MidiInputPort,
-    quit: Arc<AtomicCell<bool>>,
-) {
-    start_generic_input_thread(
-        |msg| msg,
-        MidiMsg::SystemRealTime {
-            msg: SystemRealTimeMsg::SystemReset,
-        },
-        midi_msgs,
-        midi_in,
-        in_port,
-        quit,
-    )
-}
-
-fn start_generic_input_thread<M: Send + 'static, F: Send + 'static + Fn(MidiMsg) -> M>(
-    encoder: F,
-    reset: M,
-    midi_msgs: Arc<SegQueue<M>>,
-    midi_in: MidiInput,
-    in_port: MidiInputPort,
-    quit: Arc<AtomicCell<bool>>,
-) {
-    std::thread::spawn(move || {
-        let _conn_in = midi_in
-            .connect(
-                &in_port,
-                "midir-read-input",
-                input_callback(encoder, midi_msgs.clone()),
-                (),
-            )
-            .unwrap();
-        while !quit.load() {}
-        midi_msgs.push(reset);
-        quit.store(false);
-    });
-}
-
-fn input_callback<M: Send + 'static, F: Send + 'static + Fn(MidiMsg) -> M>(
-    encoder: F,
-    midi_msgs: Arc<SegQueue<M>>,
-) -> impl Fn(u64, &[u8], &mut ()) {
-    move |_stamp, message, _| {
-        let (msg, _len) = MidiMsg::from_midi(message).unwrap();
-        midi_msgs.push(encoder(msg));
-    }
-}
-
-/// Plays sounds according to instructions received in the `midi_msgs` queue. Synthesizer sounds may be selected with
-/// MIDI `Program Change` messages that reference sounds stored in `patch_table`.
-///
-/// The constant value `N` is the number of distinct sounds it can emit. Each MIDI `Note On` message uses one distinct
-/// sound. When a number of `Note On` messages greater than `N` has been received, the sound used by the oldest `Note On`
-/// message is reused for the new `Note On` message.
-///
-/// Setting `N = 1` yields a monophonic synthesizer. Setting `N = 10` should suffice for most purposes.
-///
-/// If a `SystemReset` MIDI message is received, the thread exits.
-pub fn start_output_thread<const N: usize>(
-    midi_msgs: Arc<SegQueue<SynthMsg>>,
-    patch_table: Arc<PatchTable>,
-    config: Option<GlobalConfig>,
-) {
-    let cnf = config.unwrap_or_default();
-    println!("{:?}", cnf);
-    std::thread::spawn(move || {
-        let mut player = SynthPlayer::<N>::new(patch_table, cnf);
-        player.run_output(midi_msgs).unwrap();
-    });
-}
-
-/// Plays sounds according to `MidiMsg` objects received in the `midi_msgs` queue. Synthesizer sounds may be selected with
-/// MIDI `Program Change` messages that reference sounds stored in `patch_table`.
-///
-/// The constant value `N` is the number of distinct sounds it can emit. Each MIDI `Note On` message uses one distinct
-/// sound. When a number of `Note On` messages greater than `N` has been received, the sound used by the oldest `Note On`
-/// message is reused for the new `Note On` message.
-///
-/// Setting `N = 1` yields a monophonic synthesizer. Setting `N = 10` should suffice for most purposes.
-///
-/// If a `SystemReset` MIDI message is received, the thread exits.
-pub fn start_midi_output_thread<const N: usize>(
-    midi_msgs: Arc<SegQueue<MidiMsg>>,
-    patch_table: Arc<PatchTable>,
-    config: Option<GlobalConfig>,
-) {
-    let cnf = config.unwrap_or_default();
-    inner_start_output_thread(midi_msgs, SynthPlayer::<N>::new(patch_table, cnf));
-}
-
-fn inner_start_output_thread<const N: usize>(
-    midi_msgs: Arc<SegQueue<MidiMsg>>,
-    mut player: SynthPlayer<N>,
-) {
-    let relay_out = Arc::new(SegQueue::new());
-    let relay_in = relay_out.clone();
-    std::thread::spawn(move || {
-        loop {
-            if let Some(msg) = midi_msgs.pop() {
-                relay_out.push(SynthMsg {
-                    msg,
-                    speaker: Speaker::Both,
-                })
-            }
-        }
-    });
-
-    std::thread::spawn(move || {
-        player.run_output(relay_in).unwrap();
-    });
-}
-
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 /// Represents whether a sound should go to the left, right, or both speakers.
 pub enum Speaker {
@@ -261,53 +45,10 @@ impl Speaker {
         *self as usize
     }
 }
-trait DubleSpeaker<const N: usize> {
+pub trait Synth<const N: usize> {
     fn new(patch_table: Arc<PatchTable>, config: GlobalConfig) -> Self;
 
-    fn sound(&mut self) -> Net;
-
-    fn run_output(&mut self, midi_msgs: Arc<SegQueue<SynthMsg>>) -> anyhow::Result<()> {
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or(anyhow!("failed to find a default output device"))?;
-        let default_config = device.default_output_config().expect("No default config");
-
-        // 2. Query the device's supported buffer size range
-        let buffer_size_range = default_config.buffer_size();
-
-        let buffer_size = match buffer_size_range {
-            // If the device reports a min/max range, pick a value in between
-            SupportedBufferSize::Range { min, max } => {
-                let target = 441; // todo: make it configurable?
-                // Clamp the target to the valid range [min, max]
-                let chosen = target.clamp(*min, *max);
-                println!(
-                    "Device supports buffer sizes {}-{}. Using {}.",
-                    min, max, chosen
-                );
-                cpal::BufferSize::Fixed(chosen)
-            }
-            // If the device doesn't report a range, fall back to the default
-            SupportedBufferSize::Unknown => {
-                println!("Device buffer size range unknown, using default.");
-                cpal::BufferSize::Default
-            }
-        };
-
-        // 4. Build your final stream configuration
-        let config = cpal::StreamConfig {
-            channels: default_config.channels(),
-            sample_rate: default_config.sample_rate(),
-            buffer_size,
-        };
-        match default_config.sample_format() {
-            SampleFormat::F32 => self.run_synth::<f32>(midi_msgs, device, config.into()),
-            SampleFormat::I16 => self.run_synth::<i16>(midi_msgs, device, config.into()),
-            SampleFormat::U16 => self.run_synth::<u16>(midi_msgs, device, config.into()),
-            sample_format => panic!("Unsupported sample format '{sample_format}'"),
-        }
-    }
+    fn run_output(&mut self, midi_msgs: Arc<SegQueue<SynthMsg>>) -> anyhow::Result<()>;
 
     fn decode(&mut self, speaker: Speaker, msg: &MidiMsg) -> Option<RelayedMessage>;
     fn run_synth<T: Sample + SizedSample + FromSample<f32>>(
@@ -365,12 +106,12 @@ trait DubleSpeaker<const N: usize> {
 }
 
 /// The default player that has one stereo stream in and one out (U2 inputs, U2 outputs)
-struct SynthPlayer<const N: usize> {
+pub struct SynthPlayer<const N: usize> {
     voice_manager: VoiceManager<N>,
     buffers: Buffers,
 }
 
-impl<const N: usize> DubleSpeaker<N> for SynthPlayer<N> {
+impl<const N: usize> Synth<N> for SynthPlayer<N> {
     fn new(patch_table: Arc<PatchTable>, config: GlobalConfig) -> Self {
         let voice_manager = VoiceManager::<N>::new(patch_table.clone(), config);
         Self {
@@ -382,15 +123,53 @@ impl<const N: usize> DubleSpeaker<N> for SynthPlayer<N> {
         }
     }
 
-    fn sound(&mut self) -> Net {
-        self.voice_manager.sound()
+    fn run_output(&mut self, midi_msgs: Arc<SegQueue<SynthMsg>>) -> anyhow::Result<()> {
+        let host = cpal::default_host();
+        let device = host
+            .default_output_device()
+            .ok_or(anyhow!("failed to find a default output device"))?;
+        let default_config = device.default_output_config().expect("No default config");
+
+        // 2. Query the device's supported buffer size range
+        let buffer_size_range = default_config.buffer_size();
+
+        let buffer_size = match buffer_size_range {
+            // If the device reports a min/max range, pick a value in between
+            SupportedBufferSize::Range { min, max } => {
+                let target = 441; // todo: make it configurable?
+                // Clamp the target to the valid range [min, max]
+                let chosen = target.clamp(*min, *max);
+                println!(
+                    "Device supports buffer sizes {}-{}. Using {}.",
+                    min, max, chosen
+                );
+                cpal::BufferSize::Fixed(chosen)
+            }
+            // If the device doesn't report a range, fall back to the default
+            SupportedBufferSize::Unknown => {
+                println!("Device buffer size range unknown, using default.");
+                cpal::BufferSize::Default
+            }
+        };
+
+        // 4. Build your final stream configuration
+        let config = StreamConfig {
+            channels: default_config.channels(),
+            sample_rate: default_config.sample_rate(),
+            buffer_size,
+        };
+        match default_config.sample_format() {
+            SampleFormat::F32 => self.run_synth::<f32>(midi_msgs, device, config.into()),
+            SampleFormat::I16 => self.run_synth::<i16>(midi_msgs, device, config.into()),
+            SampleFormat::U16 => self.run_synth::<u16>(midi_msgs, device, config.into()),
+            sample_format => panic!("Unsupported sample format '{sample_format}'"),
+        }
     }
 
     fn decode(&mut self, _speaker: Speaker, msg: &MidiMsg) -> Option<RelayedMessage> {
         let result = None;
         result.or(self.voice_manager.decode(msg))
     }
-
     fn get_stream<T>(&mut self, config: &StreamConfig, device: &Device) -> anyhow::Result<Stream>
     where
         T: Sample + FromSample<f32> + SizedSample,
@@ -432,7 +211,7 @@ impl<const N: usize> DubleSpeaker<N> for SynthPlayer<N> {
     }
 }
 
-fn write_data_block<T: Sample + FromSample<f32>>(
+pub fn write_data_block<T: Sample + FromSample<f32>>(
     output: &mut [T],
     channels: usize,
     block_size: usize,
@@ -461,7 +240,7 @@ fn write_data_block<T: Sample + FromSample<f32>>(
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-enum RelayedMessage {
+pub enum RelayedMessage {
     SystemReset,
 }
 
@@ -579,7 +358,7 @@ impl<const N: usize> VoiceManager<N> {
             }
             2 => {
                 let vol = var(&self.master_volume);
-                (sound * vol)
+                sound * vol
             }
             _ => panic!("Unsupported output count on synth! use either U1 (mono) or U2 (stereo)"),
         };
@@ -603,12 +382,12 @@ impl<const N: usize> VoiceManager<N> {
                     self.bend(*bend);
                 }
                 ChannelVoiceMsg::ProgramChange { program } => {
-                    self.change_patch(program);
+                    self.change_patch(*program as usize);
                 }
                 ChannelVoiceMsg::ControlChange {
                     control: CC { control, value },
                 } => {
-                    eprintln!("Control change from {:?} to {:?}", control, value);
+                    //eprintln!("Control change from {:?} to {:?}", control, value);
                     let norm = *value as f32 / 127.0;
                     if let Some(&(group, idx)) = self.cc_to_knob.get(control) {
                         match group {
@@ -753,13 +532,13 @@ impl<const N: usize> VoiceManager<N> {
             }
         }
     }
-    fn change_patch(&mut self, program: &u8) {
+    fn change_patch(&mut self, program: usize) {
         let table = self.patch_table.clone();
-        if let Some(mut entry) = table.entries.get(*program as usize) {
+        if let Some(entry) = table.entries.get(program) {
             self.synth_func = entry.sound_factory.build();
             let tuner = entry.tuning.clone();
             self.set_midi_to_hz(tuner);
-            self.current_patch_num = *program as usize;
+            self.current_patch_num = program;
             let new_sound_net = self.sound();
             let new_fx_net = entry.effects.clone().build(&self.states[0]);
             self.mix_net // todo: make fade time for effects configurable?
