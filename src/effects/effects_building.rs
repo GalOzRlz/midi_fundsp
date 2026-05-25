@@ -117,30 +117,32 @@ impl FxChainFactory {
                 .and_then(|v| v.as_table());
 
             // def.cc_params is now &[(name, default_knob)] – no default value
-            for param in def.params.cc_params.iter() {
-                let mut knob = param.cc_index;
+            if let Some(cc_params) = def.params.cc_params {
+                for param in cc_params.iter() {
+                    let mut knob = param.cc_index;
 
-                // User override?
-                if let Some(m) = user_mappings {
-                    if let Some(val) = m.get(fx_name).and_then(|v| v.as_integer()) {
-                        knob = val as usize;
+                    // User override?
+                    if let Some(m) = user_mappings {
+                        if let Some(val) = m.get(fx_name).and_then(|v| v.as_integer()) {
+                            knob = val as usize;
+                        }
                     }
-                }
-                // Clamp
-                if knob < 1 {
-                    knob = 1;
-                }
-                if knob > effect_cc_count {
-                    knob = effect_cc_count;
-                }
+                    // Clamp
+                    if knob < 1 {
+                        knob = 1;
+                    }
+                    if knob > effect_cc_count {
+                        knob = effect_cc_count;
+                    }
 
-                knob_map.insert(fx_name.to_string(), knob);
+                    knob_map.insert(fx_name.to_string(), knob);
 
-                knob_labels.push(KnobLabel {
-                    group: KnobGroup::Effect,
-                    index: knob,
-                    label: format!("{}", fx_name),
-                });
+                    knob_labels.push(KnobLabel {
+                        group: KnobGroup::Effect,
+                        index: knob,
+                        label: format!("{}", fx_name),
+                    });
+                }
             }
             println!("knob map: {:?}", knob_map);
             for (param_name, value) in construction.iter() {

@@ -70,16 +70,16 @@ fn fundsp_reverb_factory(params: Parameterized) -> EffectFunc {
 }
 
 #[distributed_slice(EFFECTS)]
-static REVERB_EFFECT: EffectDef = EffectDef {
+static REVERB: EffectDef = EffectDef {
     factory: fundsp_reverb_factory,
     params: Parameterized {
-        name: "reverb", // &'static str
-        cc_params: &[CcParam {
+        name: "reverb",
+        cc_params: Some(&[CcParam {
             default_value: ParamType::ZeroToOneFloat(0.4),
             cc_index: 1,
             name: "mix",
-        }],
-        non_cc_params: &[], // empty slice
+        }]),
+        non_cc_params: None,
     },
 };
 

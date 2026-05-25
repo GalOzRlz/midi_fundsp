@@ -19,36 +19,30 @@ pub struct NonCcParam {
 #[derive(Clone)]
 pub(crate) struct Parameterized {
     pub(crate) name: &'static str,
-    pub(crate) cc_params: &'static [CcParam],
-    pub(crate) non_cc_params: &'static [NonCcParam], // use slice if possible
+    pub(crate) cc_params: Option<&'static [CcParam]>,
+    pub(crate) non_cc_params: Option<&'static [NonCcParam]>, // use slice if possible
 }
 impl Parameterized {
     pub fn get_cc_param(&self, name: &str) -> Option<&CcParam> {
-        for i in self.cc_params.iter() {
-            if i.name == name {
-                return Some(i);
+        if let Some(vec) = self.cc_params {
+            for i in vec.iter() {
+                if i.name == name {
+                    return Some(i);
+                }
             }
         }
         None
     }
 
     pub fn get_non_cc_param(&self, name: &str) -> Option<&NonCcParam> {
-        for i in self.non_cc_params.iter() {
-            if i.name == name {
-                return Some(i);
+        if let Some(vec) = self.non_cc_params {
+            for i in vec.iter() {
+                if i.name == name {
+                    return Some(i);
+                }
             }
         }
         None
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(default)]
-pub struct NoParams {}
-
-impl Default for NoParams {
-    fn default() -> Self {
-        Self {}
     }
 }
 
