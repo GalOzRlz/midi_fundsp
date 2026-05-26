@@ -1,50 +1,7 @@
-use crate::common_definitions::params::ParamType;
+use crate::common_definitions::params::CcParam;
 use oximedia_effects::stereo_widener::WidenerMode;
 use oximedia_effects::stereo_widener::WidenerMode::{HaasDelay, MidSide, PhaseSpread};
 use serde::{Deserialize, Deserializer};
-
-#[derive(Debug, Clone)]
-pub struct CcParam {
-    pub default_value: ParamType,
-    pub cc_index: usize,
-    pub(crate) name: &'static str,
-}
-
-#[derive(Debug, Clone)]
-pub struct NonCcParam {
-    pub default_value: ParamType,
-    name: &'static str,
-}
-
-#[derive(Clone)]
-pub(crate) struct Parameterized {
-    pub(crate) name: &'static str,
-    pub(crate) cc_params: Option<&'static [CcParam]>,
-    pub(crate) non_cc_params: Option<&'static [NonCcParam]>, // use slice if possible
-}
-impl Parameterized {
-    pub fn get_cc_param(&self, name: &str) -> Option<&CcParam> {
-        if let Some(vec) = self.cc_params {
-            for i in vec.iter() {
-                if i.name == name {
-                    return Some(i);
-                }
-            }
-        }
-        None
-    }
-
-    pub fn get_non_cc_param(&self, name: &str) -> Option<&NonCcParam> {
-        if let Some(vec) = self.non_cc_params {
-            for i in vec.iter() {
-                if i.name == name {
-                    return Some(i);
-                }
-            }
-        }
-        None
-    }
-}
 
 #[derive(Deserialize)]
 #[serde(default)]

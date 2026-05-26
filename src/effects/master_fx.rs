@@ -1,8 +1,7 @@
-use crate::common_definitions::params::ParamType;
+use crate::common_definitions::params::{CcParam, ParamType, Parameterized};
 use crate::effects::effects_building::EffectDef;
 use crate::effects::effects_building::EffectFunc;
 use crate::effects::helpers::cc_controlled_wet_dry_fx;
-use crate::effects::params::{CcParam, Parameterized};
 use crate::helpers::fundsp::to_net;
 use fundsp::prelude64::*;
 
@@ -62,9 +61,9 @@ fn fundsp_reverb_factory(params: Parameterized) -> EffectFunc {
         let wet_amount = state.get_fx_net_or_default(mix_cc_param);
         cc_controlled_reverb(
             wet_amount,
-            length_param.default_value.get_f32().unwrap(),
-            room_size_param.default_value.get_f32().unwrap(),
-            damping_param.default_value.get_f32().unwrap(),
+            length_param.value.as_f32().unwrap(),
+            room_size_param.value.as_f32().unwrap(),
+            damping_param.value.as_f32().unwrap(),
         )
     })
 }
@@ -75,11 +74,11 @@ static REVERB: EffectDef = EffectDef {
     params: Parameterized {
         name: "reverb",
         cc_params: Some(&[CcParam {
-            default_value: ParamType::ZeroToOneFloat(0.4),
+            default: ParamType::ZeroToOneFloat(0.4),
             cc_index: 1,
             name: "mix",
         }]),
-        non_cc_params: None,
+        non_cc_params: None, // todo: add before you move on to sounds!
     },
 };
 
