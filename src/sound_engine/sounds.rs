@@ -51,17 +51,37 @@
 // register_sound!("plastic_pipe", plastic_pipe);
 
 use crate::SharedMidiState;
-use crate::sound_engine::params::TwoOscMorphParams;
+use crate::common_definitions::params::Parameterized;
 use fundsp::audiounit::AudioUnit;
 use fundsp::prelude64::*;
 
 // todo: make this into morph2: 2 osc with custom morphing and leveling - 2 morph cc 2 volume cc for each osc
-pub fn saw_to_square(_params: &TwoOscMorphParams, state: &SharedMidiState) -> Box<dyn AudioUnit> {
-    let b_cc = state.get_sound_an_or(1, 0.5);
-    let synth = Box::new(
-        (square() * (constant(1.0) - b_cc.clone()) & saw() * b_cc) * 2.0
-            >> lowpass_hz(10000.0, 0.5),
-    );
+pub fn morph2(params: &Parameterized, state: &SharedMidiState) -> Box<dyn AudioUnit> {
+    let osc_1a = params.get_osc_type("osc_1a").unwrap().get_osc();
+    let osc_1b = params.get_osc_type("osc_1b").unwrap().get_osc();
+    let osc_2a = params.get_osc_type("osc_2a").unwrap().get_osc();
+    let osc_2b = params.get_osc_type("osc_2b").unwrap().get_osc();
+
+    let fm_ratio = 1.1;
+    let fm_amount_1 = 2.0; // cc controlled option
+    let fm_amount_2 = 1.0; // cc controlled option
+
+    //sine_hz(f * ratio) * (f * depth) + f >> sine()
+    let osc_1b = ((state.bent_pitch() * fm_ratio) >> osc_1a.clone())
+        * (state.bent_pitch() * fm_amount_1)
+        + state.bent_pitch()
+        >> osc_1b;
+    let osc_2b = ((state.bent_pitch() * fm_ratio) >> osc_2a.clone())
+        * (state.bent_pitch() * fm_amount_2)
+        + state.bent_pitch()
+        >> osc_2b;
+
+    let balance = params.get_cc_param("balance").unwrap();
+    let b_cc = state.get_sound_an_or(balance);
+
+    let morph1 = (osc_1a * (constant(1.0) - b_cc.clone()) & osc_1b * b_cc.clone()) * 2.0;
+    let morph2 = (osc_2a * (constant(1.0) - b_cc.clone()) & osc_2b * b_cc) * 2.0;
+    let synth = Box::new(morph1 + morph2);
     state.assemble_unpitched_sound(synth, state.boxed_adsr())
 }
 

@@ -1,6 +1,5 @@
 use anyhow::anyhow;
-use fundsp::audiounit::AudioUnit;
-use fundsp::prelude64::{constant, poly_pulse, poly_saw, poly_square, sine, triangle};
+use fundsp::prelude64::{An, U1, Unit, poly_pulse, poly_saw, poly_square, sine, triangle, unit};
 use serde::{Deserialize, Deserializer};
 use std::borrow::Cow;
 use std::str::FromStr;
@@ -21,6 +20,23 @@ impl ParamType {
             ParamType::Int(v) => Some(*v as f32),
             ParamType::String(_) => None,
             ParamType::ZeroToOneFloat(v) => (Some(v.clamp(0.0, 1.0))),
+        }
+    }
+    pub fn as_oscillator_type(&self) -> Result<OscillatorType, &'static str> {
+        match self {
+            ParamType::String(s) => OscillatorType::from_str(s),
+            _ => Err("parameter is not a string, cannot convert to oscillator type"),
+        }
+    }
+}
+
+impl std::fmt::Display for ParamType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParamType::Float(v) => write!(f, "{}", v),
+            ParamType::Int(v) => write!(f, "{}", v),
+            ParamType::String(s) => write!(f, "{}", s),
+            ParamType::ZeroToOneFloat(v) => write!(f, "{}", v),
         }
     }
 }
@@ -64,6 +80,15 @@ impl Parameterized {
             }
         }
         Err(anyhow!(format!("Non-CC-Parameter {} not found", name)))
+    }
+    pub fn get_osc_type(&self, name: &str) -> anyhow::Result<OscillatorType> {
+        let param = self
+            .get_non_cc_param(name)
+            .map_err(|_| anyhow::anyhow!("parameter not found"))?;
+        param
+            .value
+            .as_oscillator_type()
+            .map_err(|e| anyhow::anyhow!(e))
     }
 }
 
@@ -166,14 +191,14 @@ impl FromStr for OscillatorType {
 }
 
 impl OscillatorType {
-    pub fn to_audiounit(&self) -> Box<dyn AudioUnit> {
+    pub fn get_osc(&self) -> An<Unit<U1, U1>> {
         match self {
-            OscillatorType::Saw => Box::new(poly_saw()),
-            OscillatorType::Triangle => Box::new(triangle()),
-            OscillatorType::Sine => Box::new(sine()),
-            OscillatorType::Pulse => Box::new(poly_pulse()),
-            OscillatorType::Square => Box::new(poly_square()),
-            OscillatorType::None => Box::new(sine() * constant(0.0)),
+            OscillatorType::Saw => unit::<U1, U1>(Box::new(poly_saw())),
+            OscillatorType::Triangle => unit::<U1, U1>(Box::new(triangle())),
+            OscillatorType::Sine => unit::<U1, U1>(Box::new(sine())),
+            OscillatorType::Pulse => unit::<U1, U1>(Box::new(poly_pulse())),
+            OscillatorType::Square => unit::<U1, U1>(Box::new(poly_square())),
+            OscillatorType::None => unit::<U1, U1>(Box::new(sine() * 0.0)),
         }
     }
 }
