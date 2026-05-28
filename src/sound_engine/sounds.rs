@@ -62,9 +62,17 @@ pub fn morph2(params: &Parameterized, state: &SharedMidiState) -> Box<dyn AudioU
     let osc_2a = params.get_osc_type("osc_2a").unwrap().get_osc();
     let osc_2b = params.get_osc_type("osc_2b").unwrap().get_osc();
 
-    let fm_ratio = 1.1;
-    let fm_amount_1 = 2.0; // cc controlled option
-    let fm_amount_2 = 1.0; // cc controlled option
+    let fm_ratio = 1.1; // cc controlled option not on by default
+    let fm_amount_1 = 2.0; // cc option by default
+    let fm_amount_2 = 1.0; // same
+
+    // morph factor 1 and 2 cc controlled
+    let balance_1 = params.get_cc_param("balance_1").unwrap();
+    let b1_cc = state.get_sound_an_or(balance_1);
+
+    // morph factor 1 and 2 cc controlled
+    let balance_2 = params.get_cc_param("balance_2").unwrap();
+    let b2_cc = state.get_sound_an_or(balance_2);
 
     //sine_hz(f * ratio) * (f * depth) + f >> sine()
     let osc_1b = ((state.bent_pitch() * fm_ratio) >> osc_1a.clone())
@@ -76,11 +84,8 @@ pub fn morph2(params: &Parameterized, state: &SharedMidiState) -> Box<dyn AudioU
         + state.bent_pitch()
         >> osc_2b;
 
-    let balance = params.get_cc_param("balance").unwrap();
-    let b_cc = state.get_sound_an_or(balance);
-
-    let morph1 = (osc_1a * (constant(1.0) - b_cc.clone()) & osc_1b * b_cc.clone()) * 2.0;
-    let morph2 = (osc_2a * (constant(1.0) - b_cc.clone()) & osc_2b * b_cc) * 2.0;
+    let morph1 = (osc_1a * (constant(1.0) - b1_cc.clone()) & osc_1b * b1_cc.clone()) * 2.0;
+    let morph2 = (osc_2a * (constant(1.0) - b2_cc.clone()) & osc_2b * b2_cc) * 2.0;
     let synth = Box::new(morph1 + morph2);
     state.assemble_unpitched_sound(synth, state.boxed_adsr())
 }
