@@ -375,19 +375,20 @@ impl<const N: usize> VoiceManager<N> {
                     control: CC { control, value },
                 } => {
                     //eprintln!("Control change from {:?} to {:?}", control, value);
-                    let norm = *value as f32 / 127.0;
+                    // quantized to 0.0-1.0 with 0.01 steps:
+                    let quantized = ((*value as i32 * 100 + 63) / 127) as f32 / 100.0;
                     if let Some(&(group, idx)) = self.cc_to_logical_num.get(control) {
                         match group {
                             KnobGroup::Sound => {
-                                self.sound_cc_vals[idx] = norm;
+                                self.sound_cc_vals[idx] = quantized;
                                 for state in self.states.iter_mut() {
-                                    state.sound_cc_vals[idx].set_value(norm);
+                                    state.sound_cc_vals[idx].set_value(quantized);
                                 }
                             }
                             KnobGroup::Effect => {
-                                self.fx_cc_vals[idx] = norm;
+                                self.fx_cc_vals[idx] = quantized;
                                 for state in self.states.iter_mut() {
-                                    state.fx_cc_vals[idx].set_value(norm);
+                                    state.fx_cc_vals[idx].set_value(quantized);
                                 }
                             }
                         }

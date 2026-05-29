@@ -51,20 +51,25 @@
 // register_sound!("plastic_pipe", plastic_pipe);
 
 use crate::SharedMidiState;
-use crate::common_definitions::params::Parameterized;
+use crate::common_definitions::params::{CcParam, ParamType, Parameterized};
+use crate::sound_engine::sound_building::{SOUNDS, SoundFactory};
 use fundsp::audiounit::AudioUnit;
 use fundsp::prelude64::*;
+use linkme::distributed_slice;
+use std::borrow::Cow;
 
 // todo: make this into morph2: 2 osc with custom morphing and leveling - 2 morph cc 2 volume cc for each osc
-pub fn morph2(params: &Parameterized, state: &SharedMidiState) -> Box<dyn AudioUnit> {
+pub fn morph2(state: &SharedMidiState, params: &Parameterized) -> Box<dyn AudioUnit> {
     let osc_1a = params.get_osc_type("osc_1a").unwrap().get_osc();
     let osc_1b = params.get_osc_type("osc_1b").unwrap().get_osc();
     let osc_2a = params.get_osc_type("osc_2a").unwrap().get_osc();
     let osc_2b = params.get_osc_type("osc_2b").unwrap().get_osc();
 
-    let fm_ratio = 1.1; // cc controlled option not on by default
-    let fm_amount_1 = 2.0; // cc option by default
-    let fm_amount_2 = 1.0; // same
+    // todo: how to accept default as int but control cc with 0.0-1.0?
+    let fm_ratio = *0.5; // cc controlled option not on by default steps of 0.5 up to 10??
+    // if value is lower than 1.0 apply *10 and leave steps of 0.1
+    let fm_amount_1 = *10; // modulation index cap to 10 cc option by default
+    let fm_amount_2 = *10; // same
 
     let balance_1 = params.get_cc_param("balance_1").unwrap();
     let b1_cc = state.get_sound_an_or(balance_1);
@@ -87,6 +92,32 @@ pub fn morph2(params: &Parameterized, state: &SharedMidiState) -> Box<dyn AudioU
     let synth = Box::new(morph1 + morph2);
     state.assemble_unpitched_sound(synth, state.boxed_adsr())
 }
+
+#[distributed_slice(SOUNDS)]
+static MORPH2: SoundFactory = SoundFactory {
+    builder: morph2,
+    params: Parameterized {
+        name: "morph2",
+        cc_params: Some(Cow::Borrowed(&[
+            CcParam {
+                value: ParamType::ZeroToOneFloat(0.5),
+                cc_index: 1,
+                name: "balance_1",
+            },
+            CcParam {
+                value: ParamType::ZeroToOneFloat(0.5),
+                cc_index: 2,
+                name: "balance_2",
+            },
+            CcParam {
+                value: ParamType::ZeroToOneFloat(0.5),
+                cc_index: 0,
+                name: "balance_1",
+            },
+        ])),
+        non_cc_params: None,
+    },
+};
 
 // register_sound!(
 //     name: "Square_saw_soft",

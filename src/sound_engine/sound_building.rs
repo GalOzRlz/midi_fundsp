@@ -22,12 +22,12 @@ pub fn get_sound_from_registry(sound_name: &str) -> &'static SoundFactory {
         .unwrap_or_else(|| panic!("Unknown sound: {}", sound_name))
 }
 
-pub type SoundBuilder = fn(state: &SharedMidiState, config: &Parameterized) -> Box<dyn AudioUnit>;
+pub type SoundBuilder = fn(state: &SharedMidiState, params: &Parameterized) -> Box<dyn AudioUnit>;
 
 #[derive(Clone)]
 pub struct SoundFactory {
     pub builder: SoundBuilder,
-    pub params: Arc<Parameterized>,
+    pub params: Parameterized,
 }
 
 /// `SynthFunc` objects translate `SharedMidiState` values into [fundsp](https://crates.io/crates/fundsp) audio graphs.
@@ -44,9 +44,9 @@ impl SoundFactory {
         let Some(sound_toml_config) = config else {
             return;
         };
-        let mut new_params = (*self.params).clone();
+        let mut new_params = self.params.clone();
         new_params.apply_toml_overrides(&sound_toml_config.config_maps);
-        self.params = Arc::from(new_params);
+        self.params = new_params;
     }
 
     pub fn build_synth(&self) -> SynthFunc {
