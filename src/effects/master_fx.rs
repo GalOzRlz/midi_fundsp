@@ -59,9 +59,9 @@ fn fundsp_reverb_factory(params: Arc<Parameterized>) -> EffectFunc {
         let wet_amount = state.get_fx_net_or_default(mix_cc_param);
         cc_controlled_reverb(
             wet_amount,
-            length_param.value.as_f32().unwrap(),
-            room_size_param.value.as_f32().unwrap(),
-            damping_param.value.as_f32().unwrap(),
+            length_param.value.as_zero_to_one_f32().unwrap(),
+            room_size_param.value.as_zero_to_one_f32().unwrap(),
+            damping_param.value.as_zero_to_one_f32().unwrap(),
         )
     })
 }

@@ -18,14 +18,16 @@ pub enum ParamType {
     U8(u8),
     String(String),
     ZeroOneFloat(f32),
+    ZeroHundredFloat(f32),
 }
 
 impl ParamType {
-    pub fn as_f32(&self) -> Option<f32> {
-        match self {
+    pub fn as_zero_to_one_f32(&self) -> Option<f32> {
+        match &self {
             ParamType::U8(v) => Some(quantize_u8_to_01(*v.clamp(&0, &127))),
             ParamType::String(_) => None,
             ParamType::ZeroOneFloat(v) => (Some(v.clamp(0.0, 1.0))),
+            ParamType::ZeroHundredFloat(v) => Some((*v / 100.0).clamp(0.0, 1.0)),
         }
     }
     pub fn as_oscillator_type(&self) -> Result<OscillatorType, &'static str> {
@@ -42,6 +44,7 @@ impl std::fmt::Display for ParamType {
             ParamType::U8(v) => write!(f, "{}", v),
             ParamType::String(s) => write!(f, "{}", s),
             ParamType::ZeroOneFloat(v) => write!(f, "{}", v),
+            ParamType::ZeroHundredFloat(v) => write!(f, "{}", v),
         }
     }
 }
@@ -70,7 +73,7 @@ impl CcInit for Parameterized {
         let mut cc_array = [0_f32; MAX_KNOBS_PER_GROUP];
         for cc_params_cow in &self.cc_params {
             for cc_param in cc_params_cow.iter() {
-                cc_array[cc_param.cc_index] = cc_param.value.as_f32().unwrap()
+                cc_array[cc_param.cc_index] = cc_param.value.as_zero_to_one_f32().unwrap()
             }
         }
         cc_array
@@ -160,7 +163,7 @@ where
     for param in params {
         if let Some(toml_value) = toml_overrides.get(param.get_name()) {
             match param.get_mut() {
-                ParamType::ZeroOneFloat(v) => {
+                ParamType::ZeroOneFloat(v) | ParamType::ZeroHundredFloat(v) => {
                     if let Some(num) = toml_value.as_float() {
                         *v = num as f32;
                     }

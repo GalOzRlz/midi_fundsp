@@ -155,13 +155,13 @@ impl SharedMidiState {
 
     pub fn get_fx_an_or_default(&self, cc: &CcParam) -> An<Pipe<Var, Follow<f64>>> {
         self.fx_cc(cc.cc_index)
-            .unwrap_or(var(&shared(cc.value.as_f32().unwrap())))
+            .unwrap_or(var(&shared(cc.value.as_zero_to_one_f32().unwrap())))
             >> cc_smooth()
     }
 
     pub fn get_sound_an_or_default(&self, cc: &CcParam) -> An<Pipe<Var, Follow<f64>>> {
         self.sound_cc(cc.cc_index)
-            .unwrap_or(var(&shared(cc.value.as_f32().unwrap())))
+            .unwrap_or(var(&shared(cc.value.as_zero_to_one_f32().unwrap())))
             >> cc_smooth()
     }
 

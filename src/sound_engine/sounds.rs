@@ -67,7 +67,7 @@ pub fn morph2(state: &SharedMidiState, params: &Parameterized) -> Box<dyn AudioU
     let osc_2b = params.get_osc_type("osc_2b").unwrap().get_osc();
 
     // todo: how to accept default as int but control cc with 0.0-1.0?
-    let fm_ratio = *0.5 >> quantize_01_step(); // non cc controlled option not on by default steps of 0.5 up to 10??
+    let fm_ratio = *0.25 >> quantize_01_step(); // non cc controlled option not on by default steps of 0.5 up to 10??
     // if value is lower than 1.0 apply *10 and leave steps of 0.1
     let fm_amount_1 = *10; // modulation index cap to 10 cc option by default
     let fm_amount_2 = *10; // same
@@ -112,7 +112,7 @@ static MORPH2: SoundFactory = SoundFactory {
             },
             CcParam {
                 value: ParamType::ZeroOneFloat(0.5),
-                cc_index: 0,
+                cc_index: 0, // static value by default
                 name: "balance_1",
             },
         ])),
