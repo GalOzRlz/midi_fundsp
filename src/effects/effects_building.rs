@@ -42,18 +42,20 @@ pub struct FxChainFactory {
 
 impl CcInit for FxChainFactory {
     fn get_initial_cc(&self) -> [f32; MAX_KNOBS_PER_GROUP] {
-        let mut cc_array = [0_f32; MAX_KNOBS_PER_GROUP];
+        let mut final_cc_array = [0_f32; MAX_KNOBS_PER_GROUP];
         if let Some(definitions) = &self.definitions {
-            for params in definitions {
-                for cc_params_cow in &params.cc_params {
-                    for cc_param in cc_params_cow.iter() {
-                        cc_array[cc_param.cc_index] = cc_param.default.as_f32().unwrap()
-                    }
+            let mut cc_summation = Vec::with_capacity(definitions.len());
+            for def in definitions {
+                cc_summation.push(def.get_initial_cc())
+            }
+            for (param) in cc_summation.iter() {
+                for (idx, val) in param.iter().enumerate() {
+                    final_cc_array[idx] = *val;
                 }
             }
         }
-        println!("initial cc array: {:?}", cc_array);
-        cc_array
+        println!("initial fx cc array: {:?}", final_cc_array);
+        final_cc_array
     }
 }
 
@@ -98,15 +100,10 @@ impl FxChainFactory {
         }
     }
 
-    pub fn process_config(config: Option<&TomlEffectSection>) -> Self {
+    pub fn process_config(&self, config: Option<&TomlEffectSection>) -> Self {
         let registry = get_effects_registry();
         let Some(effects_toml_config) = config else {
-            return FxChainFactory {
-                chain: Arc::new(Vec::new()),
-                node_ids: None,
-                fx_names: None,
-                definitions: None,
-            };
+            return Self::new();
         };
         let mut definitions = Vec::new();
         let mut fx_names = Vec::new();
@@ -115,7 +112,7 @@ impl FxChainFactory {
             for fx_name in fx_chain.iter() {
                 let entry = get_effect_from_registry(fx_name, &registry);
                 let mut params = entry.params.clone();
-                params.apply_toml_overrides(effects_toml_config);
+                params.apply_toml_overrides(&effects_toml_config.config_maps);
                 let runtime_arc = Arc::new(params);
                 let closure = (entry.factory)(runtime_arc.clone());
                 chain.push(closure);

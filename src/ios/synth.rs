@@ -247,24 +247,24 @@ struct VoiceManager<const N: usize> {
     current_patch_num: usize,
     sound_cc_vals: Vec<f32>,
     fx_cc_vals: Vec<f32>,
-    cc_to_knob: HashMap<u8, (KnobGroup, usize)>, // CC → (group, 0‑based index)
+    cc_to_logical_num: HashMap<u8, (KnobGroup, usize)>,
 }
 
 impl<const N: usize> VoiceManager<N> {
     fn new(patch_table: Arc<PatchTable>, config: GlobalConfig) -> Self {
-        let mut cc_to_knob = HashMap::new();
+        let mut cc_to_logical_num = HashMap::new();
         for (i, &cc) in config.sound_cc_mapping.iter().enumerate() {
-            cc_to_knob.insert(cc, (KnobGroup::Sound, i));
+            cc_to_logical_num.insert(cc, (KnobGroup::Sound, i));
         }
         for (i, &cc) in config.fx_cc_mapping.iter().enumerate() {
-            cc_to_knob.insert(cc, (KnobGroup::Effect, i));
+            cc_to_logical_num.insert(cc, (KnobGroup::Effect, i));
         }
         let sound_len = config.sound_cc_mapping.len().max(1);
         let effect_len = config.fx_cc_mapping.len().max(1);
         let first_table = &patch_table.clone().entries[0];
-        let synth_func = first_table.sounds.build();
+        let synth_func = first_table.sound_factory.build_synth();
         let fx_cc_array = &first_table.effects.get_initial_cc();
-        let sound_cc_array = &first_table.sounds.get_initial_cc();
+        let sound_cc_array = &first_table.sound_factory.get_initial_cc();
         let tuner = first_table.tuning;
         let mut master_fx_net = Net::new(2, 2);
 
@@ -272,7 +272,7 @@ impl<const N: usize> VoiceManager<N> {
             SharedMidiState::new(
                 &config.sound_cc_mapping,
                 &config.fx_cc_mapping,
-                &sound_cc_array,
+                sound_cc_array,
                 fx_cc_array,
                 tuner,
             )
@@ -292,7 +292,7 @@ impl<const N: usize> VoiceManager<N> {
             config: config.clone(),
             sound_cc_vals: vec![0.0; sound_len],
             fx_cc_vals: vec![0.0; effect_len],
-            cc_to_knob,
+            cc_to_logical_num,
             current_patch_num: 0,
             fx_node_id,
             mix_net: Net::new(2, 2),
@@ -376,7 +376,7 @@ impl<const N: usize> VoiceManager<N> {
                 } => {
                     //eprintln!("Control change from {:?} to {:?}", control, value);
                     let norm = *value as f32 / 127.0;
-                    if let Some(&(group, idx)) = self.cc_to_knob.get(control) {
+                    if let Some(&(group, idx)) = self.cc_to_logical_num.get(control) {
                         match group {
                             KnobGroup::Sound => {
                                 self.sound_cc_vals[idx] = norm;
@@ -485,17 +485,15 @@ impl<const N: usize> VoiceManager<N> {
             }
         }
 
-        // 2. Apply sound initial CCs to sound parameters
         for (i, &val) in self.patch_table.entries[self.current_patch_num]
             .sound_factory
-            .get_initial_cc
+            .get_initial_cc()
             .iter()
             .enumerate()
         {
-            // Ensure we don't go out of bounds for your sound CC array
+            println!("FX {}, {}", i, val);
             if i < self.sound_cc_vals.len() {
                 self.sound_cc_vals[i] = val;
-                // If your states also store sound CCs, update them similarly:
                 for state in self.states.iter_mut() {
                     if i < state.sound_cc_count {
                         state.sound_cc_vals[i].set_value(val);
@@ -507,7 +505,7 @@ impl<const N: usize> VoiceManager<N> {
     fn change_patch(&mut self, program: usize) {
         let table = self.patch_table.clone();
         if let Some(entry) = table.entries.get(program) {
-            self.synth_func = entry.sound_factory.build();
+            self.synth_func = entry.sound_factory.build_synth();
             let tuner = entry.tuning.clone();
             self.set_midi_to_hz(tuner);
             self.current_patch_num = program;

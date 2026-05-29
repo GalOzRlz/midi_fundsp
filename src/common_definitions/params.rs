@@ -49,7 +49,7 @@ impl std::fmt::Display for ParamType {
 
 #[derive(Debug, Clone)]
 pub struct CcParam {
-    pub default: ParamType,
+    pub value: ParamType,
     pub cc_index: usize,
     pub name: &'static str,
 }
@@ -65,6 +65,19 @@ pub struct Parameterized {
     pub cc_params: Option<Cow<'static, [CcParam]>>,
     pub non_cc_params: Option<Cow<'static, [NonCcParam]>>,
 }
+
+impl CcInit for Parameterized {
+    fn get_initial_cc(&self) -> [f32; MAX_KNOBS_PER_GROUP] {
+        let mut cc_array = [0_f32; MAX_KNOBS_PER_GROUP];
+        for cc_params_cow in &self.cc_params {
+            for cc_param in cc_params_cow.iter() {
+                cc_array[cc_param.cc_index] = cc_param.value.as_f32().unwrap()
+            }
+        }
+        cc_array
+    }
+}
+
 impl Parameterized {
     pub fn apply_toml_overrides<T>(&mut self, toml_config: &T)
     where
@@ -123,7 +136,7 @@ pub trait ValuedParam {
 
 impl ValuedParam for CcParam {
     fn get_mut(&mut self) -> &mut ParamType {
-        &mut self.default
+        &mut self.value
     }
 
     fn get_name(&self) -> &str {

@@ -1,6 +1,6 @@
 use crate::effects::effects_building::FxChainFactory;
 use crate::patch_builder::{PatchDef, PatchTable};
-use crate::sound_engine::sound_building::SoundFactory;
+use crate::sound_engine::sound_building::{SoundFactory, get_sound_from_registry};
 use crate::tunings::{TunerBuilder, TunerEntry};
 use fundsp::math::midi_hz;
 use serde::Deserialize;
@@ -110,18 +110,25 @@ pub struct TomlPatchDef {
     pub sound: Option<TomlSoundConfigSection>,
     pub effects: Option<TomlEffectSection>,
 }
+
 pub trait ConfigurableMapping {
     fn get_config(&self) -> Option<&HashMap<String, Value>>;
     fn get_mapping(&self) -> Option<&HashMap<String, Value>>;
     fn get_mapping_mut(&mut self) -> Option<&mut HashMap<String, Value>>;
 }
-#[derive(Deserialize, Clone)]
-pub struct TomlSoundConfigSection {
+
+#[derive(Clone, Default, Deserialize)]
+pub struct ConfigurableMappings {
     pub config: Option<HashMap<String, Value>>,
     pub mapping: Option<HashMap<String, Value>>,
 }
 
-impl ConfigurableMapping for TomlSoundConfigSection {
+#[derive(Deserialize, Clone)]
+pub struct TomlSoundConfigSection {
+    pub config_maps: ConfigurableMappings,
+}
+
+impl ConfigurableMapping for ConfigurableMappings {
     fn get_config(&self) -> Option<&HashMap<String, Value>> {
         self.config.as_ref()
     }
@@ -137,24 +144,9 @@ impl ConfigurableMapping for TomlSoundConfigSection {
 
 #[derive(Deserialize, Clone)]
 pub struct TomlEffectSection {
-    pub chain: Option<Vec<String>>,
     #[serde(flatten)]
-    pub config: Option<HashMap<String, Value>>,
-    pub mapping: Option<HashMap<String, Value>>,
-}
-
-impl ConfigurableMapping for TomlEffectSection {
-    fn get_config(&self) -> Option<&HashMap<String, Value>> {
-        self.config.as_ref()
-    }
-
-    fn get_mapping(&self) -> Option<&HashMap<String, Value>> {
-        self.mapping.as_ref()
-    }
-
-    fn get_mapping_mut(&mut self) -> Option<&mut HashMap<String, Value>> {
-        self.mapping.as_mut()
-    }
+    pub chain: Option<Vec<String>>,
+    pub config_maps: ConfigurableMappings,
 }
 
 #[derive(Deserialize)]
@@ -201,7 +193,7 @@ pub fn load_all_programs(paths: &[&str]) -> Vec<TomlPatchDef> {
                 function: prog.function,
                 name: display_name,
                 tuning: prog.tuning,
-                sound: prog.config,
+                sound: prog.sound,
                 effects: prog.effects,
             });
         }
@@ -210,18 +202,17 @@ pub fn load_all_programs(paths: &[&str]) -> Vec<TomlPatchDef> {
 }
 
 // ---------- build the PatchTable ----------
-pub fn build_patch_table(programs: &[TomlPatchDef], global_config: &GlobalConfig) -> PatchTable {
+pub fn build_patch_table(programs: &[TomlPatchDef]) -> PatchTable {
     let tuner_map: HashMap<&str, TunerBuilder> = inventory::iter::<TunerEntry>()
         .map(|e| (e.name, e.tuner))
         .collect();
 
     let default_tuner = midi_hz;
-    let sound_cc_count = global_config.sound_cc_mapping.len().max(1);
     let mut patch_defs = Vec::new();
 
     for prog in programs {
         // --- resolve tuner ---
-        let tuner = if let Some(ref tuning_name) = prog.tuning {
+        let tuning = if let Some(ref tuning_name) = prog.tuning {
             tuner_map
                 .get(tuning_name.as_str())
                 .copied()
@@ -233,15 +224,16 @@ pub fn build_patch_table(programs: &[TomlPatchDef], global_config: &GlobalConfig
             default_tuner
         };
 
-        // --- build effect chain ---
-        let fx_chain = FxChainFactory::new(prog.effects.as_ref());
+        let effects = FxChainFactory::new();
+        effects.process_config(prog.effects.as_ref());
+        let mut sound_factory: SoundFactory = get_sound_from_registry(&*prog.function).clone();
+        sound_factory.process_config(prog.sound.as_ref());
 
-        // --- assemble PatchDef ---
         let patch_def = PatchDef {
-            sounds: SoundFactory::new(prog.function.as_str(), prog.config.clone(), sound_cc_count),
+            sound_factory,
             name: prog.name.clone(),
-            tuning: tuner,
-            effects: fx_chain,
+            tuning,
+            effects,
         };
 
         patch_defs.push(patch_def);
@@ -277,13 +269,9 @@ fn reorder_by_names(entries: &mut Vec<PatchDef>, order: &[String]) {
     *entries = new_entries;
 }
 
-pub fn create_ordered_patch_table(
-    patch_paths: &[&str],
-    order_path: &str,
-    global_config: &GlobalConfig,
-) -> PatchTable {
+pub fn create_ordered_patch_table(patch_paths: &[&str], order_path: &str) -> PatchTable {
     let all_programs = load_all_programs(patch_paths);
-    let mut patch_table = build_patch_table(&all_programs, global_config);
+    let mut patch_table = build_patch_table(&all_programs);
 
     if let Ok(text) = std::fs::read_to_string(order_path) {
         if let Ok(ord_config) = toml::from_str::<TomlOrderConfig>(&text) {
