@@ -43,12 +43,16 @@ pub type SynthFunc = Arc<dyn Fn(&SharedMidiState) -> Box<dyn AudioUnit> + Send +
 // }
 
 impl SoundFactory {
-    pub fn process_toml(&self, config: Option<&TomlSoundConfigSection>) {
-        let Some(config) = config else { return };
-        let mut runtime_params = self.params.clone();
+    pub fn process_config(&mut self, config: Option<&TomlSoundConfigSection>) {
+        let Some(sound_toml_config) = config else {
+            return;
+        };
+        let mut new_params = (*self.params).clone();
+        new_params.apply_toml_overrides(sound_toml_config);
+        self.params = Arc::from(new_params);
     }
 
-    pub fn build(&self, state: &SharedMidiState) -> SynthFunc {
+    pub fn build_synth(&self) -> SynthFunc {
         let function = self.builder.clone();
         let config = self.params.clone();
         Arc::new(move |state: &SharedMidiState| -> Box<dyn AudioUnit> { function(state, &config) })

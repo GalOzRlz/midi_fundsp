@@ -6,14 +6,17 @@
 #function = "plastic_pipe"
 #name = "plastic pipe"
 [[program]]
-function = "Square_saw_soft"
-name = "soft square+saw"
+function = "morph2"
+name = "morph2 A"
 tuning = "just intonation"
 [program.sound]
-
+something = 1
+another = 2
+[program.sound.config]
+else = 0.2
 [program.effects]
 chain = ["eq2", "reverb"]
-[program.effects.reverb]
+[program.effects.reverb.cofig]
 # Construction parameters (never modulated)
 room_size = 8.8
 damping   = 0.5
@@ -26,14 +29,15 @@ highcut = 1.0
 
 
 [[program]]
-function = "Square_saw_soft"
-name = "soft square+saw2"
-tuning = "just intonation"
+function = "morph2"
+name = "morph2 B"
 [program.effects]
 chain = ["reverb"]
-[program.effects.reverb]
+[program.effects.reverb.config]
 # Construction parameters (never modulated)
 room_size = 3.8
 damping   = 0.5
 length    = 4.2
 wet_amount = 0.3
+[program.effects.reverb.mapping]
+wet_amount = 2

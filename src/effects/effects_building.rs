@@ -1,12 +1,11 @@
 use crate::SharedMidiState;
-use crate::common_definitions::params::{CcInit, Parameterized, apply_toml_overrides};
+use crate::common_definitions::params::{CcInit, Parameterized};
 use crate::config_builder::{MAX_KNOBS_PER_GROUP, TomlEffectSection};
 use crate::effects::helpers::to_stereo;
 use fundsp::prelude64::{Net, NodeId};
 use linkme::distributed_slice;
 use std::collections::HashMap;
 use std::sync::Arc;
-use toml::Table;
 
 #[distributed_slice]
 pub static EFFECTS: [EffectDef] = [..];
@@ -90,9 +89,18 @@ impl FxChainFactory {
             Arc::new(self.chain.iter().map(|fx| fx(shared_midi_state)).collect());
         self.connect_node_vec(arc_vec)
     }
-    pub fn new(effects_config: Option<&TomlEffectSection>) -> Self {
+    pub fn new() -> Self {
+        FxChainFactory {
+            chain: Arc::new(Vec::new()),
+            node_ids: None,
+            fx_names: None,
+            definitions: None,
+        }
+    }
+
+    pub fn process_config(config: Option<&TomlEffectSection>) -> Self {
         let registry = get_effects_registry();
-        let Some(effects) = effects_config else {
+        let Some(effects_toml_config) = config else {
             return FxChainFactory {
                 chain: Arc::new(Vec::new()),
                 node_ids: None,
@@ -103,50 +111,17 @@ impl FxChainFactory {
         let mut definitions = Vec::new();
         let mut fx_names = Vec::new();
         let mut chain = Vec::new();
-        for fx_name in &effects.chain {
-            let entry = get_effect_from_registry(fx_name, &registry);
-            let mut runtime_params = entry.params.clone();
-            // ---- Construction values (raw TOML table, exactly what the factory expects) ----
-            let mut toml_overrides = Table::new();
-            if let Some(eff_cfg) = effects
-                .extras
-                .get(fx_name.as_str())
-                .and_then(|v| v.as_table())
-            {
-                for (k, v) in eff_cfg {
-                    if k != "mapping" {
-                        toml_overrides.insert(k.clone(), v.clone());
-                    }
-                }
+        if let Some(fx_chain) = &effects_toml_config.chain {
+            for fx_name in fx_chain.iter() {
+                let entry = get_effect_from_registry(fx_name, &registry);
+                let mut params = entry.params.clone();
+                params.apply_toml_overrides(effects_toml_config);
+                let runtime_arc = Arc::new(params);
+                let closure = (entry.factory)(runtime_arc.clone());
+                chain.push(closure);
+                fx_names.push(fx_name.to_string());
+                definitions.push(runtime_arc);
             }
-
-            // cc mapping
-            let user_mappings: Option<&Table> = effects
-                .extras
-                .get(fx_name.as_str())
-                .and_then(|v| v.get("mapping"))
-                .and_then(|v| v.as_table());
-
-            if let Some(ref mut cc_params) = runtime_params.cc_params {
-                let params_mut = cc_params.to_mut(); // &mut [CcParam], call once
-                for param in params_mut.iter_mut() {
-                    if let Some(m) = &user_mappings {
-                        if let Some(val) = m.get(fx_name).and_then(|v| v.as_integer()) {
-                            param.cc_index = val as usize;
-                        }
-                    }
-                }
-                apply_toml_overrides(cc_params.to_mut(), fx_name, &toml_overrides);
-            }
-            if let Some(ref mut non_cc_params) = runtime_params.non_cc_params {
-                apply_toml_overrides(non_cc_params.to_mut(), fx_name, &toml_overrides);
-            }
-
-            let runtime_arc = Arc::new(runtime_params);
-            let closure = (entry.factory)(runtime_arc.clone());
-            chain.push(closure);
-            fx_names.push(fx_name.to_string());
-            definitions.push(runtime_arc.clone());
         }
         FxChainFactory {
             chain: Arc::new(chain),

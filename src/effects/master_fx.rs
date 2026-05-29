@@ -55,7 +55,7 @@ fn fundsp_reverb_factory(params: Arc<Parameterized>) -> EffectFunc {
         let room_size_param = params.get_non_cc_param("room_size").unwrap();
         let damping_param = params.get_non_cc_param("damping").unwrap();
         let length_param = params.get_non_cc_param("length").unwrap();
-        let mix_cc_param = params.get_cc_param("mix").unwrap();
+        let mix_cc_param = params.get_cc_param("wet_amount").unwrap();
         let wet_amount = state.get_fx_net_or_default(mix_cc_param);
         cc_controlled_reverb(
             wet_amount,
@@ -74,7 +74,7 @@ static REVERB: EffectDef = EffectDef {
         cc_params: Some(Cow::Borrowed(&[CcParam {
             default: ParamType::ZeroToOneFloat(0.35),
             cc_index: 1,
-            name: "mix",
+            name: "wet_amount",
         }])),
         non_cc_params: None,
     },

@@ -1,10 +1,11 @@
-use crate::config_builder::MAX_KNOBS_PER_GROUP;
+use crate::config_builder::{ConfigurableMapping, MAX_KNOBS_PER_GROUP};
 use anyhow::anyhow;
 use fundsp::prelude64::{An, U1, Unit, poly_pulse, poly_saw, poly_square, sine, triangle, unit};
 use serde::{Deserialize, Deserializer};
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::str::FromStr;
-use toml::Table;
+use toml::Value;
 
 pub trait CcInit {
     fn get_initial_cc(&self) -> [f32; MAX_KNOBS_PER_GROUP];
@@ -65,6 +66,23 @@ pub struct Parameterized {
     pub non_cc_params: Option<Cow<'static, [NonCcParam]>>,
 }
 impl Parameterized {
+    pub fn apply_toml_overrides<T>(&mut self, toml_config: &T)
+    where
+        T: ConfigurableMapping,
+    {
+        if let Some(cfg) = toml_config.get_config() {
+            if let Some(mut_cc_params) = self.cc_params.as_mut() {
+                apply_toml_values_overrides(mut_cc_params.to_mut(), &cfg);
+            }
+            if let Some(mut_non_cc_params) = self.non_cc_params.as_mut() {
+                apply_toml_values_overrides(mut_non_cc_params.to_mut(), &cfg);
+            }
+        }
+        if let Some(user_mappings) = toml_config.get_mapping() {
+            apply_toml_mapping(self, user_mappings);
+        }
+    }
+
     pub fn get_cc_param(&self, name: &str) -> anyhow::Result<&CcParam> {
         if let Some(vec) = &self.cc_params {
             for i in vec.iter() {
@@ -99,25 +117,36 @@ impl Parameterized {
 
 pub trait ValuedParam {
     fn get_mut(&mut self) -> &mut ParamType;
+
+    fn get_name(&self) -> &str;
 }
 
 impl ValuedParam for CcParam {
     fn get_mut(&mut self) -> &mut ParamType {
         &mut self.default
     }
+
+    fn get_name(&self) -> &str {
+        self.name
+    }
 }
+
 impl ValuedParam for NonCcParam {
     fn get_mut(&mut self) -> &mut ParamType {
         &mut self.value
     }
+
+    fn get_name(&self) -> &str {
+        self.name
+    }
 }
 
-pub fn apply_toml_overrides<T>(params: &mut [T], fx_name: &str, toml_overrides: &Table)
+pub fn apply_toml_values_overrides<T>(params: &mut [T], toml_overrides: &HashMap<String, Value>)
 where
     T: ValuedParam,
 {
     for param in params {
-        if let Some(toml_value) = toml_overrides.get(fx_name) {
+        if let Some(toml_value) = toml_overrides.get(param.get_name()) {
             match param.get_mut() {
                 ParamType::Float(v) | ParamType::ZeroToOneFloat(v) => {
                     if let Some(num) = toml_value.as_float() {
@@ -136,6 +165,17 @@ where
                         *s = str_val.to_string();
                     }
                 }
+            }
+        }
+    }
+}
+
+pub fn apply_toml_mapping(params: &mut Parameterized, toml_mapping: &HashMap<String, Value>) {
+    if let Some(ref mut cc_params) = params.cc_params {
+        let params_mut = cc_params.to_mut();
+        for param in params_mut.iter_mut() {
+            if let Some(val) = toml_mapping.get(param.name).and_then(|v| v.as_integer()) {
+                param.cc_index = val as usize
             }
         }
     }

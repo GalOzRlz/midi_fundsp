@@ -5,6 +5,7 @@ use crate::tunings::{TunerBuilder, TunerEntry};
 use fundsp::math::midi_hz;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
+use toml::Value;
 
 // ---------- dynamic knob sizing ----------
 pub const MAX_KNOBS_PER_GROUP: usize = 16;
@@ -106,22 +107,54 @@ pub struct TomlPatchDef {
     pub function: String,
     pub name: String,
     pub tuning: Option<String>,
-    pub config: Option<toml::Table>,
+    pub sound: Option<TomlSoundConfigSection>,
     pub effects: Option<TomlEffectSection>,
 }
-
+pub trait ConfigurableMapping {
+    fn get_config(&self) -> Option<&HashMap<String, Value>>;
+    fn get_mapping(&self) -> Option<&HashMap<String, Value>>;
+    fn get_mapping_mut(&mut self) -> Option<&mut HashMap<String, Value>>;
+}
 #[derive(Deserialize, Clone)]
 pub struct TomlSoundConfigSection {
-    pub mapping: HashMap<String, toml::Value>,
-    #[serde(flatten)]
-    pub extras: HashMap<String, toml::Value>,
+    pub config: Option<HashMap<String, Value>>,
+    pub mapping: Option<HashMap<String, Value>>,
+}
+
+impl ConfigurableMapping for TomlSoundConfigSection {
+    fn get_config(&self) -> Option<&HashMap<String, Value>> {
+        self.config.as_ref()
+    }
+
+    fn get_mapping(&self) -> Option<&HashMap<String, Value>> {
+        self.mapping.as_ref()
+    }
+
+    fn get_mapping_mut(&mut self) -> Option<&mut HashMap<String, Value>> {
+        self.mapping.as_mut()
+    }
 }
 
 #[derive(Deserialize, Clone)]
 pub struct TomlEffectSection {
-    pub chain: Vec<String>,
+    pub chain: Option<Vec<String>>,
     #[serde(flatten)]
-    pub extras: HashMap<String, toml::Value>,
+    pub config: Option<HashMap<String, Value>>,
+    pub mapping: Option<HashMap<String, Value>>,
+}
+
+impl ConfigurableMapping for TomlEffectSection {
+    fn get_config(&self) -> Option<&HashMap<String, Value>> {
+        self.config.as_ref()
+    }
+
+    fn get_mapping(&self) -> Option<&HashMap<String, Value>> {
+        self.mapping.as_ref()
+    }
+
+    fn get_mapping_mut(&mut self) -> Option<&mut HashMap<String, Value>> {
+        self.mapping.as_mut()
+    }
 }
 
 #[derive(Deserialize)]
@@ -168,7 +201,7 @@ pub fn load_all_programs(paths: &[&str]) -> Vec<TomlPatchDef> {
                 function: prog.function,
                 name: display_name,
                 tuning: prog.tuning,
-                config: prog.config,
+                sound: prog.config,
                 effects: prog.effects,
             });
         }
@@ -205,11 +238,7 @@ pub fn build_patch_table(programs: &[TomlPatchDef], global_config: &GlobalConfig
 
         // --- assemble PatchDef ---
         let patch_def = PatchDef {
-            sounds: SoundFactory::new(
-                prog.function.as_str(),
-                prog.config.clone().unwrap_or_default(),
-                sound_cc_count,
-            ),
+            sounds: SoundFactory::new(prog.function.as_str(), prog.config.clone(), sound_cc_count),
             name: prog.name.clone(),
             tuning: tuner,
             effects: fx_chain,
