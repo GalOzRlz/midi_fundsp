@@ -1,3 +1,4 @@
+mod distortion;
 pub mod effects_building;
 mod eqs;
 mod helpers;

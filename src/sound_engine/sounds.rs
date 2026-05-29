@@ -51,7 +51,7 @@
 // register_sound!("plastic_pipe", plastic_pipe);
 
 use crate::SharedMidiState;
-use crate::common_definitions::helpers::quantize_01_step;
+use crate::common_definitions::helpers::quantize_01_decimal;
 use crate::common_definitions::params::{CcParam, ParamType, Parameterized};
 use crate::sound_engine::sound_building::{SOUNDS, SoundFactory};
 use fundsp::audiounit::AudioUnit;
@@ -66,11 +66,14 @@ pub fn morph2(state: &SharedMidiState, params: &Parameterized) -> Box<dyn AudioU
     let osc_2a = params.get_osc_type("osc_2a").unwrap().get_osc();
     let osc_2b = params.get_osc_type("osc_2b").unwrap().get_osc();
 
-    // todo: how to accept default as int but control cc with 0.0-1.0?
-    let fm_ratio = *0.25 >> quantize_01_step(); // non cc controlled option not on by default steps of 0.5 up to 10??
-    // if value is lower than 1.0 apply *10 and leave steps of 0.1
-    let fm_amount_1 = *10; // modulation index cap to 10 cc option by default
-    let fm_amount_2 = *10; // same
+    let fm_ratio_cc = params.get_cc_param("fm_ratio").unwrap();
+    let fm_ratio_an = state.get_sound_an_or_default(fm_ratio_cc) >> quantize_01_decimal(); // goes from 0.01 to 1.0
+
+    let fm_amount_1_cc = params.get_cc_param("fm_amount_1").unwrap();
+    let fm_amount_1 = state.get_sound_an_or_default(fm_amount_1_cc) * constant(10.0);
+
+    let fm_amount_2_cc = params.get_cc_param("fm_amount_2").unwrap();
+    let fm_amount_2 = state.get_sound_an_or_default(fm_amount_2_cc) * constant(10.0);
 
     let balance_1 = params.get_cc_param("balance_1").unwrap();
     let b1_cc = state.get_sound_an_or_default(balance_1);
@@ -79,11 +82,11 @@ pub fn morph2(state: &SharedMidiState, params: &Parameterized) -> Box<dyn AudioU
     let b2_cc = state.get_sound_an_or_default(balance_2);
 
     // FM: osc(f * ratio) * (f * depth) + f >> sine()
-    let osc_1b = ((state.bent_pitch() * fm_ratio) >> osc_1a.clone())
+    let osc_1b = ((state.bent_pitch() * fm_ratio_an.clone()) >> osc_1a.clone())
         * (state.bent_pitch() * fm_amount_1)
         + state.bent_pitch()
         >> osc_1b;
-    let osc_2b = ((state.bent_pitch() * fm_ratio) >> osc_2a.clone())
+    let osc_2b = ((state.bent_pitch() * fm_ratio_an) >> osc_2a.clone())
         * (state.bent_pitch() * fm_amount_2)
         + state.bent_pitch()
         >> osc_2b;
