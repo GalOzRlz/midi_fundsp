@@ -245,8 +245,6 @@ struct VoiceManager<const N: usize> {
     sound_node_id: NodeId,
     mix_net: Net,
     current_patch_num: usize,
-    sound_cc_vals: Vec<f32>,
-    fx_cc_vals: Vec<f32>,
     cc_to_logical_num: HashMap<u8, (KnobGroup, usize)>,
 }
 
@@ -290,8 +288,6 @@ impl<const N: usize> VoiceManager<N> {
             master_volume: shared(0.15),
             patch_table,
             config: config.clone(),
-            sound_cc_vals: vec![0.0; sound_len],
-            fx_cc_vals: vec![0.0; effect_len],
             cc_to_logical_num,
             current_patch_num: 0,
             fx_node_id,
@@ -380,13 +376,11 @@ impl<const N: usize> VoiceManager<N> {
                     if let Some(&(group, idx)) = self.cc_to_logical_num.get(control) {
                         match group {
                             KnobGroup::Sound => {
-                                self.sound_cc_vals[idx] = quantized;
                                 for state in self.states.iter_mut() {
                                     state.sound_cc_vals[idx].set_value(quantized);
                                 }
                             }
                             KnobGroup::Effect => {
-                                self.fx_cc_vals[idx] = quantized;
                                 for state in self.states.iter_mut() {
                                     state.fx_cc_vals[idx].set_value(quantized);
                                 }
@@ -475,8 +469,7 @@ impl<const N: usize> VoiceManager<N> {
             // 1. Apply effect initial CCs to effect knobs
             for (i, &val) in entry.effects.get_initial_cc().iter().enumerate() {
                 println!("FX {}, {}", i, val);
-                if i < self.fx_cc_vals.len() {
-                    self.fx_cc_vals[i] = val;
+                if i < self.states[0].fx_cc_vals.len() {
                     for state in self.states.iter_mut() {
                         if i < state.effect_cc_count {
                             state.fx_cc_vals[i].set_value(val);
@@ -493,8 +486,7 @@ impl<const N: usize> VoiceManager<N> {
             .enumerate()
         {
             println!("FX {}, {}", i, val);
-            if i < self.sound_cc_vals.len() {
-                self.sound_cc_vals[i] = val;
+            if i < self.states[0].sound_cc_vals.len() {
                 for state in self.states.iter_mut() {
                     if i < state.sound_cc_count {
                         state.sound_cc_vals[i].set_value(val);
