@@ -51,6 +51,7 @@
 // register_sound!("plastic_pipe", plastic_pipe);
 
 use crate::SharedMidiState;
+use crate::common_definitions::helpers::quantize_01_step;
 use crate::common_definitions::params::{CcParam, ParamType, Parameterized};
 use crate::sound_engine::sound_building::{SOUNDS, SoundFactory};
 use fundsp::audiounit::AudioUnit;
@@ -66,16 +67,16 @@ pub fn morph2(state: &SharedMidiState, params: &Parameterized) -> Box<dyn AudioU
     let osc_2b = params.get_osc_type("osc_2b").unwrap().get_osc();
 
     // todo: how to accept default as int but control cc with 0.0-1.0?
-    let fm_ratio = *0.5; // cc controlled option not on by default steps of 0.5 up to 10??
+    let fm_ratio = *0.5 >> quantize_01_step(); // non cc controlled option not on by default steps of 0.5 up to 10??
     // if value is lower than 1.0 apply *10 and leave steps of 0.1
     let fm_amount_1 = *10; // modulation index cap to 10 cc option by default
     let fm_amount_2 = *10; // same
 
     let balance_1 = params.get_cc_param("balance_1").unwrap();
-    let b1_cc = state.get_sound_an_or(balance_1);
+    let b1_cc = state.get_sound_an_or_default(balance_1);
 
     let balance_2 = params.get_cc_param("balance_2").unwrap();
-    let b2_cc = state.get_sound_an_or(balance_2);
+    let b2_cc = state.get_sound_an_or_default(balance_2);
 
     // FM: osc(f * ratio) * (f * depth) + f >> sine()
     let osc_1b = ((state.bent_pitch() * fm_ratio) >> osc_1a.clone())
@@ -100,17 +101,17 @@ static MORPH2: SoundFactory = SoundFactory {
         name: "morph2",
         cc_params: Some(Cow::Borrowed(&[
             CcParam {
-                value: ParamType::ZeroToOneFloat(0.5),
+                value: ParamType::ZeroOneFloat(0.5),
                 cc_index: 1,
                 name: "balance_1",
             },
             CcParam {
-                value: ParamType::ZeroToOneFloat(0.5),
+                value: ParamType::ZeroOneFloat(0.5),
                 cc_index: 2,
                 name: "balance_2",
             },
             CcParam {
-                value: ParamType::ZeroToOneFloat(0.5),
+                value: ParamType::ZeroOneFloat(0.5),
                 cc_index: 0,
                 name: "balance_1",
             },

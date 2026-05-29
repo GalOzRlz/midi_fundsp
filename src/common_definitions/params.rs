@@ -1,5 +1,7 @@
+use crate::common_definitions::helpers::quantize_u8_to_01;
 use crate::config_builder::{ConfigurableMapping, MAX_KNOBS_PER_GROUP};
 use anyhow::anyhow;
+use fundsp::funutd::math::Num;
 use fundsp::prelude64::{An, U1, Unit, poly_pulse, poly_saw, poly_square, sine, triangle, unit};
 use serde::{Deserialize, Deserializer};
 use std::borrow::Cow;
@@ -13,19 +15,17 @@ pub trait CcInit {
 
 #[derive(Debug, Clone)]
 pub enum ParamType {
-    Float(f32),
-    Int(usize),
+    U8(u8),
     String(String),
-    ZeroToOneFloat(f32),
+    ZeroOneFloat(f32),
 }
 
 impl ParamType {
     pub fn as_f32(&self) -> Option<f32> {
         match self {
-            ParamType::Float(v) => Some(*v),
-            ParamType::Int(v) => Some(*v as f32),
+            ParamType::U8(v) => Some(quantize_u8_to_01(*v.clamp(&0, &127))),
             ParamType::String(_) => None,
-            ParamType::ZeroToOneFloat(v) => (Some(v.clamp(0.0, 1.0))),
+            ParamType::ZeroOneFloat(v) => (Some(v.clamp(0.0, 1.0))),
         }
     }
     pub fn as_oscillator_type(&self) -> Result<OscillatorType, &'static str> {
@@ -39,10 +39,9 @@ impl ParamType {
 impl std::fmt::Display for ParamType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParamType::Float(v) => write!(f, "{}", v),
-            ParamType::Int(v) => write!(f, "{}", v),
+            ParamType::U8(v) => write!(f, "{}", v),
             ParamType::String(s) => write!(f, "{}", s),
-            ParamType::ZeroToOneFloat(v) => write!(f, "{}", v),
+            ParamType::ZeroOneFloat(v) => write!(f, "{}", v),
         }
     }
 }
@@ -161,16 +160,16 @@ where
     for param in params {
         if let Some(toml_value) = toml_overrides.get(param.get_name()) {
             match param.get_mut() {
-                ParamType::Float(v) | ParamType::ZeroToOneFloat(v) => {
+                ParamType::ZeroOneFloat(v) => {
                     if let Some(num) = toml_value.as_float() {
                         *v = num as f32;
                     }
                 }
-                ParamType::Int(v) => {
+                ParamType::U8(v) => {
                     if let Some(num) = toml_value.as_integer() {
-                        *v = num as usize;
+                        *v = num as u8;
                     } else if let Some(num) = toml_value.as_float() {
-                        *v = num as usize;
+                        *v = num as u8;
                     }
                 }
                 ParamType::String(s) => {

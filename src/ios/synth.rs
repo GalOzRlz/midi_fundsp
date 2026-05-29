@@ -257,8 +257,6 @@ impl<const N: usize> VoiceManager<N> {
         for (i, &cc) in config.fx_cc_mapping.iter().enumerate() {
             cc_to_logical_num.insert(cc, (KnobGroup::Effect, i));
         }
-        let sound_len = config.sound_cc_mapping.len().max(1);
-        let effect_len = config.fx_cc_mapping.len().max(1);
         let first_table = &patch_table.clone().entries[0];
         let synth_func = first_table.sound_factory.build_synth();
         let fx_cc_array = &first_table.effects.get_initial_cc();
@@ -372,17 +370,17 @@ impl<const N: usize> VoiceManager<N> {
                 } => {
                     //eprintln!("Control change from {:?} to {:?}", control, value);
                     // quantized to 0.0-1.0 with 0.01 steps:
-                    let quantized = ((*value as i32 * 100 + 63) / 127) as f32 / 100.0;
+                    let norm = *value as f32 / 127.0;
                     if let Some(&(group, idx)) = self.cc_to_logical_num.get(control) {
                         match group {
                             KnobGroup::Sound => {
                                 for state in self.states.iter_mut() {
-                                    state.sound_cc_vals[idx].set_value(quantized);
+                                    state.sound_cc_vals[idx].set_value(norm);
                                 }
                             }
                             KnobGroup::Effect => {
                                 for state in self.states.iter_mut() {
-                                    state.fx_cc_vals[idx].set_value(quantized);
+                                    state.fx_cc_vals[idx].set_value(norm);
                                 }
                             }
                         }
