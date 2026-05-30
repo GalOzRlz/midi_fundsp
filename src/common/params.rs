@@ -31,7 +31,7 @@ pub trait CcInit {
 #[derive(Debug, Clone)]
 pub enum ParamType {
     U8(u8),
-    String(&'static str),
+    String(Cow<'static, str>),
     ZeroOneFloat(f32),
     ZeroHundredFloat(f32),
 }
@@ -213,7 +213,7 @@ where
                 }
                 ParamType::String(s) => {
                     if let Some(str_val) = toml_value.as_str() {
-                        *s = osc_string_to_static(str_val).unwrap()
+                        *s = osc_string_to_cow(str_val);
                     }
                 }
             }
@@ -251,35 +251,42 @@ pub enum OscillatorType {
     Saw,
     Triangle,
     Sine,
-    Pulse, // todo: add Pulse Width
+    Pulse,
     Square,
+    WhiteNoise,
+    BrownNoise,
+    PinkNoise,
+    WaveTable(String), // todo: how to implement?!
     None,
 }
 
 impl FromStr for OscillatorType {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
+        type Err = &'static str;
+        let lower = s.to_lowercase();
+        match lower.as_str() {
             "saw" => Ok(OscillatorType::Saw),
             "triangle" => Ok(OscillatorType::Triangle),
             "sine" => Ok(OscillatorType::Sine),
             "pulse" => Ok(OscillatorType::Pulse),
             "square" => Ok(OscillatorType::Square),
             "none" => Ok(OscillatorType::None),
-            _ => Err("unknown oscillator type"),
+            // we assume it's a file path
+            file_path => Ok(OscillatorType::WaveTable(file_path.parse().unwrap())), // todo: add other tables!
         }
     }
 }
-
-fn osc_string_to_static(s: &str) -> Result<&'static str, &'static str> {
+fn osc_string_to_cow(s: &str) -> Cow<'static, str> {
     match s {
-        "saw" => Ok("saw"),
-        "triangle" => Ok("triangle"),
-        "sine" => Ok("sine"),
-        "pulse" => Ok("pulse"),
-        "square" => Ok("square"),
-        "none" => Ok("none"),
-        _ => Err("unknown oscillator type"),
+        "saw" => Cow::Borrowed("saw"),
+        "triangle" => Cow::Borrowed("triangle"),
+        "sine" => Cow::Borrowed("sine"),
+        "pulse" => Cow::Borrowed("pulse"),
+        "square" => Cow::Borrowed("square"),
+        "none" => Cow::Borrowed("none"),
+        // Any other string (file path, custom name) – take ownership
+        other => Cow::Owned(other.to_string()),
     }
 }
 
@@ -292,18 +299,20 @@ impl OscillatorType {
             OscillatorType::Pulse => unit::<U1, U1>(Box::new(poly_square())),
             OscillatorType::Square => unit::<U1, U1>(Box::new(poly_square())),
             OscillatorType::None => unit::<U1, U1>(Box::new(sine() * 0.0)),
+            _ => todo!(), // todo: load wavetable with path!
         }
     }
     pub fn get_osc_node_pw(&self) -> An<Unit<U2, U1>> {
         // nullify the second value for osc that don't support pulse width
         let sinker = (pass() | pass() * 0.0) >> join::<U2>();
         match self {
-            OscillatorType::Saw => unit::<U2, U1>(Box::new(sinker >> poly_saw())),
-            OscillatorType::Triangle => unit::<U2, U1>(Box::new(sinker >> triangle())),
-            OscillatorType::Sine => unit::<U2, U1>(Box::new(sinker >> sine())),
+            OscillatorType::Saw => unit::<U2, U1>(Box::new(sinker >> self.get_osc_node())),
+            OscillatorType::Triangle => unit::<U2, U1>(Box::new(sinker >> self.get_osc_node())),
+            OscillatorType::Sine => unit::<U2, U1>(Box::new(sinker >> self.get_osc_node())),
             OscillatorType::Pulse => unit::<U2, U1>(Box::new(pulse())),
-            OscillatorType::Square => unit::<U2, U1>(Box::new(sinker >> poly_square())),
+            OscillatorType::Square => unit::<U2, U1>(Box::new(sinker >> self.get_osc_node())),
             OscillatorType::None => unit::<U2, U1>(Box::new(sinker >> sine() * 0.0)),
+            _ => todo!(),
         }
     }
 }

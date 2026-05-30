@@ -15,13 +15,16 @@ pub fn morph2(state: &SharedMidiState, params: &Parameterized) -> Box<dyn AudioU
     let osc_2a = params.get_osc_node_type("osc_2a").unwrap().get_osc_node();
     let osc_2b = params.get_osc_node_type("osc_2b").unwrap().get_osc_node();
 
-    let fm_ratio_an = params.cc_sound_or_default("fm_ratio", state) >> quantize_01_decimal(); // goes from 0.01 to 1.0
+    // goes from 1.0 to 50.0 with half steps / fixed float 0.0 to 100.0
+    let fm_ratio_an =
+        params.cc_sound_or_default("fm_ratio", state) >> quantize_01_decimal() * constant(50.0);
     let fm_amount_1 = params.cc_sound_or_default("fm_amount_1", state) * constant(10.0);
     let fm_amount_2 = params.cc_sound_or_default("fm_amount_2", state) * constant(10.0);
 
     let b1_cc = params.cc_sound_or_default("balance_1", state);
     let b2_cc = params.cc_sound_or_default("balance_2", state);
 
+    // The B oscillators are modulated by the A oscillators
     let osc_1b = FmOperator {
         modulator: osc_1a.clone(),
         carrier: osc_1b,
@@ -83,8 +86,9 @@ static MORPH2: SoundFactory = SoundFactory {
                 description: None,
             },
         ])),
+        // todo: add the rest
         non_cc_params: Some(Cow::Borrowed(&[NonCcParam {
-            value: ParamType::String("triangle"),
+            value: ParamType::String(Cow::Borrowed("triangle")),
             name: "osc1_a",
             description: None,
         }])),
