@@ -1,4 +1,4 @@
-use crate::common_definitions::params::CcInit;
+use crate::common::params::CcInit;
 use crate::config_builder::{FreeVoiceStrategy, GlobalConfig, VoiceStealingConfig};
 use crate::effects::master_fx::master_limiter;
 use crate::ios::midi::PatchButton;

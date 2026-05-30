@@ -1,5 +1,5 @@
 use crate::SharedMidiState;
-use crate::common_definitions::params::{CcInit, Parameterized};
+use crate::common::params::{CcInit, Parameterized};
 use crate::config_builder::{MAX_KNOBS_PER_GROUP, TomlEffectSection};
 use crate::effects::helpers::to_stereo;
 use fundsp::prelude64::{Net, NodeId};

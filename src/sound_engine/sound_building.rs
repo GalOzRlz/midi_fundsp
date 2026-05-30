@@ -1,5 +1,5 @@
 use crate::SharedMidiState;
-use crate::common_definitions::params::{CcInit, Parameterized};
+use crate::common::params::{CcInit, Parameterized};
 use crate::config_builder::{MAX_KNOBS_PER_GROUP, TomlSoundConfigSection};
 use fundsp::audiounit::AudioUnit;
 use linkme::distributed_slice;

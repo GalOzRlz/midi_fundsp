@@ -1,5 +1,5 @@
 use fundsp::prelude32::{ShapeFn, Shaper};
-use fundsp::prelude64::{An, shape_fn};
+use fundsp::prelude64::{shape_fn, An};
 
 pub fn quantize_u8_to_01(value: u8) -> f32 {
     let norm = value as f32 / 127.0;

@@ -1,14 +1,29 @@
-use crate::common_definitions::helpers::quantize_u8_to_01;
+use crate::SharedMidiState;
+use crate::common::helpers::quantize_u8_to_01;
 use crate::config_builder::{ConfigurableMapping, MAX_KNOBS_PER_GROUP};
+use crate::helpers::fundsp::to_net;
 use anyhow::anyhow;
-use fundsp::funutd::math::Num;
-use fundsp::prelude64::{An, U1, Unit, poly_pulse, poly_saw, poly_square, sine, triangle, unit};
-use serde::{Deserialize, Deserializer};
+use fundsp::audionode::Pipe;
+use fundsp::follow::Follow;
+use fundsp::prelude::{join, pulse};
+use fundsp::prelude32::Var;
+use fundsp::prelude64::{An, Net, U1, U2, Unit, pass, poly_saw, poly_square, sine, triangle, unit};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::str::FromStr;
 use toml::Value;
 
+pub type CcAudioNode = An<Pipe<Var, Follow<f64>>>;
+
+impl ToNet for CcAudioNode {
+    fn to_net(self) -> Net {
+        to_net(self)
+    }
+}
+
+pub trait ToNet {
+    fn to_net(self) -> Net;
+}
 pub trait CcInit {
     fn get_initial_cc(&self) -> [f32; MAX_KNOBS_PER_GROUP];
 }
@@ -16,7 +31,7 @@ pub trait CcInit {
 #[derive(Debug, Clone)]
 pub enum ParamType {
     U8(u8),
-    String(String),
+    String(&'static str),
     ZeroOneFloat(f32),
     ZeroHundredFloat(f32),
 }
@@ -26,10 +41,20 @@ impl ParamType {
         match &self {
             ParamType::U8(v) => Some(quantize_u8_to_01(*v.clamp(&0, &127))),
             ParamType::String(_) => None,
-            ParamType::ZeroOneFloat(v) => (Some(v.clamp(0.0, 1.0))),
+            ParamType::ZeroOneFloat(v) => Some(v.clamp(0.0, 1.0)),
             ParamType::ZeroHundredFloat(v) => Some((*v / 100.0).clamp(0.0, 1.0)),
         }
     }
+
+    pub fn as_f32(&self) -> Option<f32> {
+        match &self {
+            ParamType::U8(v) => Some(*v as f32),
+            ParamType::String(_) => None,
+            ParamType::ZeroOneFloat(v) => Some(v.clamp(0.0, 1.0)),
+            ParamType::ZeroHundredFloat(v) => Some(*v),
+        }
+    }
+
     pub fn as_oscillator_type(&self) -> Result<OscillatorType, &'static str> {
         match self {
             ParamType::String(s) => OscillatorType::from_str(s),
@@ -54,13 +79,16 @@ pub struct CcParam {
     pub value: ParamType,
     pub cc_index: usize,
     pub name: &'static str,
+    pub description: Option<&'static str>,
 }
 
 #[derive(Debug, Clone)]
 pub struct NonCcParam {
     pub value: ParamType,
     pub name: &'static str,
+    pub description: Option<&'static str>,
 }
+
 #[derive(Clone)]
 pub struct Parameterized {
     pub name: &'static str,
@@ -71,7 +99,7 @@ pub struct Parameterized {
 impl CcInit for Parameterized {
     fn get_initial_cc(&self) -> [f32; MAX_KNOBS_PER_GROUP] {
         let mut cc_array = [0_f32; MAX_KNOBS_PER_GROUP];
-        for cc_params_cow in &self.cc_params {
+        if let Some(cc_params_cow) = &self.cc_params {
             for cc_param in cc_params_cow.iter() {
                 cc_array[cc_param.cc_index] = cc_param.value.as_zero_to_one_f32().unwrap()
             }
@@ -109,6 +137,14 @@ impl Parameterized {
         Err(anyhow!(format!("CC-Parameter {} not found", name)))
     }
 
+    pub fn cc_sound_or_default(&self, name: &str, shared: &SharedMidiState) -> CcAudioNode {
+        shared.get_sound_an_or_default(&self.get_cc_param(name).unwrap())
+    }
+
+    pub fn cc_fx_or_default(&self, name: &str, shared: &SharedMidiState) -> CcAudioNode {
+        shared.get_fx_an_or_default(&self.get_cc_param(name).unwrap())
+    }
+
     pub fn get_non_cc_param(&self, name: &str) -> anyhow::Result<&NonCcParam> {
         if let Some(vec) = &self.non_cc_params {
             for i in vec.iter() {
@@ -119,7 +155,7 @@ impl Parameterized {
         }
         Err(anyhow!(format!("Non-CC-Parameter {} not found", name)))
     }
-    pub fn get_osc_type(&self, name: &str) -> anyhow::Result<OscillatorType> {
+    pub fn get_osc_node_type(&self, name: &str) -> anyhow::Result<OscillatorType> {
         let param = self
             .get_non_cc_param(name)
             .map_err(|_| anyhow::anyhow!("parameter not found"))?;
@@ -177,7 +213,7 @@ where
                 }
                 ParamType::String(s) => {
                     if let Some(str_val) = toml_value.as_str() {
-                        *s = str_val.to_string();
+                        *s = osc_string_to_static(str_val).unwrap()
                     }
                 }
             }
@@ -193,21 +229,6 @@ pub fn apply_toml_mapping(params: &mut Parameterized, toml_mapping: &HashMap<Str
                 param.cc_index = val as usize
             }
         }
-    }
-}
-
-fn deserialize_polarity_type<'de, D>(deserializer: D) -> Result<Polarity, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    match s.to_lowercase().as_str() {
-        "positive" => Ok(Polarity::Positive),
-        "negative" => Ok(Polarity::Negative),
-        _ => Err(serde::de::Error::unknown_variant(
-            &s,
-            &["positive", "negative"],
-        )),
     }
 }
 
@@ -250,15 +271,39 @@ impl FromStr for OscillatorType {
     }
 }
 
+fn osc_string_to_static(s: &str) -> Result<&'static str, &'static str> {
+    match s {
+        "saw" => Ok("saw"),
+        "triangle" => Ok("triangle"),
+        "sine" => Ok("sine"),
+        "pulse" => Ok("pulse"),
+        "square" => Ok("square"),
+        "none" => Ok("none"),
+        _ => Err("unknown oscillator type"),
+    }
+}
+
 impl OscillatorType {
-    pub fn get_osc(&self) -> An<Unit<U1, U1>> {
+    pub fn get_osc_node(&self) -> An<Unit<U1, U1>> {
         match self {
             OscillatorType::Saw => unit::<U1, U1>(Box::new(poly_saw())),
             OscillatorType::Triangle => unit::<U1, U1>(Box::new(triangle())),
             OscillatorType::Sine => unit::<U1, U1>(Box::new(sine())),
-            OscillatorType::Pulse => unit::<U1, U1>(Box::new(poly_pulse())),
+            OscillatorType::Pulse => unit::<U1, U1>(Box::new(poly_square())),
             OscillatorType::Square => unit::<U1, U1>(Box::new(poly_square())),
             OscillatorType::None => unit::<U1, U1>(Box::new(sine() * 0.0)),
+        }
+    }
+    pub fn get_osc_node_pw(&self) -> An<Unit<U2, U1>> {
+        // nullify the second value for osc that don't support pulse width
+        let sinker = (pass() | pass() * 0.0) >> join::<U2>();
+        match self {
+            OscillatorType::Saw => unit::<U2, U1>(Box::new(sinker >> poly_saw())),
+            OscillatorType::Triangle => unit::<U2, U1>(Box::new(sinker >> triangle())),
+            OscillatorType::Sine => unit::<U2, U1>(Box::new(sinker >> sine())),
+            OscillatorType::Pulse => unit::<U2, U1>(Box::new(pulse())),
+            OscillatorType::Square => unit::<U2, U1>(Box::new(sinker >> poly_square())),
+            OscillatorType::None => unit::<U2, U1>(Box::new(sinker >> sine() * 0.0)),
         }
     }
 }

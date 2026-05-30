@@ -1,95 +1,42 @@
-// use crate::instruments::{dirty_guitar, hit_comb_pipe, pluck_comb_string};
-// use crate::patch_builder::*;
-// use crate::patch_helpers::Adsr;
-// use crate::{register_sound, SharedMidiState};
-// use fundsp::prelude::{lowpass_hz, shape, AudioUnit};
-// use fundsp::prelude64::{constant, sine_hz, Atan};
-// use fundsp::shape::Tanh;
-//
-//
-// pub fn harpsichord(state: &SharedMidiState) -> Box<dyn AudioUnit> {
-//     state.adsr.configure(
-//         0.005,
-//         0.8,
-//         0.0,
-//         0.0,
-//     );
-//     let gate = state.control_var().clone();
-//     let mix = (state.bent_pitch().clone() | gate | constant(0.0))
-//         >> pluck_comb_string()
-//         >> lowpass_hz(9000.0, 0.5);
-//     state.assemble_pitched_sound(Box::new(mix), state.boxed_adsr())
-// }
-//
-// pub fn plastic_pipe(state: &SharedMidiState) -> Box<dyn AudioUnit> {
-//     let adsr = state.adsr.clone();
-//     adsr.attack.set_value(12.3);
-//     let gate = state.control_var().clone();
-//     let mix = (state.bent_pitch().clone() | gate | constant(0.0))
-//         >> hit_comb_pipe() * 5.0
-//         >> shape(Tanh(1.0))
-//         >> lowpass_hz(7000.0, 0.5);
-//     state.assemble_pitched_sound(Box::new(mix), state.boxed_adsr())
-// }
-//
-// pub fn chorused_dirty_guitar(state: &SharedMidiState) -> Box<dyn AudioUnit> {
-//     state.adsr.configure(
-//          0.005,
-//          0.8,
-//          1.0,
-//          0.5,
-//     );
-//     let base_pitch = state.bent_pitch();
-//     let lfo1 = sine_hz(3.0) * 0.0065;
-//     let pitch1 = base_pitch.clone() * (constant(1.0) + lfo1);
-//     let gate = state.control_var();
-//     let dg = dirty_guitar();
-//     state.assemble_pitched_sound(Box::new(dg(pitch1, gate.clone()) * 6.6 >> shape(Atan(5.0))), state.boxed_adsr())
-// }
-//
-// register_sound!("chorused_dirty_guitar", chorused_dirty_guitar);
-// register_sound!("plastic_pipe", plastic_pipe);
-
 use crate::SharedMidiState;
-use crate::common_definitions::helpers::quantize_01_decimal;
-use crate::common_definitions::params::{CcParam, ParamType, Parameterized};
+use crate::common::fm::FmOperator;
+use crate::common::helpers::quantize_01_decimal;
+use crate::common::params::{CcParam, NonCcParam, ParamType, Parameterized};
+use crate::helpers::fundsp::to_net;
 use crate::sound_engine::sound_building::{SOUNDS, SoundFactory};
 use fundsp::audiounit::AudioUnit;
 use fundsp::prelude64::*;
 use linkme::distributed_slice;
 use std::borrow::Cow;
 
-// todo: make this into morph2: 2 osc with custom morphing and leveling - 2 morph cc 2 volume cc for each osc
 pub fn morph2(state: &SharedMidiState, params: &Parameterized) -> Box<dyn AudioUnit> {
-    let osc_1a = params.get_osc_type("osc_1a").unwrap().get_osc();
-    let osc_1b = params.get_osc_type("osc_1b").unwrap().get_osc();
-    let osc_2a = params.get_osc_type("osc_2a").unwrap().get_osc();
-    let osc_2b = params.get_osc_type("osc_2b").unwrap().get_osc();
+    let osc_1a = params.get_osc_node_type("osc_1a").unwrap().get_osc_node();
+    let osc_1b = params.get_osc_node_type("osc_1b").unwrap().get_osc_node();
+    let osc_2a = params.get_osc_node_type("osc_2a").unwrap().get_osc_node();
+    let osc_2b = params.get_osc_node_type("osc_2b").unwrap().get_osc_node();
 
-    let fm_ratio_cc = params.get_cc_param("fm_ratio").unwrap();
-    let fm_ratio_an = state.get_sound_an_or_default(fm_ratio_cc) >> quantize_01_decimal(); // goes from 0.01 to 1.0
+    let fm_ratio_an = params.cc_sound_or_default("fm_ratio", state) >> quantize_01_decimal(); // goes from 0.01 to 1.0
+    let fm_amount_1 = params.cc_sound_or_default("fm_amount_1", state) * constant(10.0);
+    let fm_amount_2 = params.cc_sound_or_default("fm_amount_2", state) * constant(10.0);
 
-    let fm_amount_1_cc = params.get_cc_param("fm_amount_1").unwrap();
-    let fm_amount_1 = state.get_sound_an_or_default(fm_amount_1_cc) * constant(10.0);
+    let b1_cc = params.cc_sound_or_default("balance_1", state);
+    let b2_cc = params.cc_sound_or_default("balance_2", state);
 
-    let fm_amount_2_cc = params.get_cc_param("fm_amount_2").unwrap();
-    let fm_amount_2 = state.get_sound_an_or_default(fm_amount_2_cc) * constant(10.0);
+    let osc_1b = FmOperator {
+        modulator: osc_1a.clone(),
+        carrier: osc_1b,
+        ratio: to_net(fm_ratio_an.clone()),
+        amount: to_net(fm_amount_1),
+    }
+    .build_operator(state);
 
-    let balance_1 = params.get_cc_param("balance_1").unwrap();
-    let b1_cc = state.get_sound_an_or_default(balance_1);
-
-    let balance_2 = params.get_cc_param("balance_2").unwrap();
-    let b2_cc = state.get_sound_an_or_default(balance_2);
-
-    // FM: osc(f * ratio) * (f * depth) + f >> sine()
-    let osc_1b = ((state.bent_pitch() * fm_ratio_an.clone()) >> osc_1a.clone())
-        * (state.bent_pitch() * fm_amount_1)
-        + state.bent_pitch()
-        >> osc_1b;
-    let osc_2b = ((state.bent_pitch() * fm_ratio_an) >> osc_2a.clone())
-        * (state.bent_pitch() * fm_amount_2)
-        + state.bent_pitch()
-        >> osc_2b;
+    let osc_2b = FmOperator {
+        modulator: osc_2a.clone(),
+        carrier: osc_2b,
+        ratio: to_net(fm_ratio_an),
+        amount: to_net(fm_amount_2),
+    }
+    .build_operator(state);
 
     let morph1 = (osc_1a * (constant(1.0) - b1_cc.clone()) & osc_1b * b1_cc.clone()) * 2.0;
     let morph2 = (osc_2a * (constant(1.0) - b2_cc.clone()) & osc_2b * b2_cc) * 2.0;
@@ -107,28 +54,42 @@ static MORPH2: SoundFactory = SoundFactory {
                 value: ParamType::ZeroOneFloat(0.5),
                 cc_index: 1,
                 name: "balance_1",
+                description: Some(
+                    "The morphing depth of Oscillator1: moves between osc_1a and osc_1b",
+                ),
             },
             CcParam {
                 value: ParamType::ZeroOneFloat(0.5),
                 cc_index: 2,
                 name: "balance_2",
+                description: None,
             },
             CcParam {
                 value: ParamType::ZeroOneFloat(0.5),
+                cc_index: 3,
+                name: "fm_amount_1",
+                description: None,
+            },
+            CcParam {
+                value: ParamType::ZeroOneFloat(0.5),
+                cc_index: 4,
+                name: "fm_amount_2",
+                description: None,
+            },
+            CcParam {
+                value: ParamType::ZeroHundredFloat(2.0),
                 cc_index: 0, // static value by default
-                name: "balance_1",
+                name: "fm_ratio",
+                description: None,
             },
         ])),
-        non_cc_params: None,
+        non_cc_params: Some(Cow::Borrowed(&[NonCcParam {
+            value: ParamType::String("triangle"),
+            name: "osc1_a",
+            description: None,
+        }])),
     },
 };
 
-// register_sound!(
-//     name: "Square_saw_soft",
-//     params: TwoOscMorphParams,
-//     factory: saw_to_square,
-//     cc_params: [("balance", 1)]
-// );
-
-//todo: add a general synth: pro6 style...2 oscillators with shapes cascading (saw, trianle, pulse) - detune control,
-// todo: this should be an engine with 2 oscilators with independent levels (pulse width modulation too?), detune and pitch shit of 1 octave up and down
+//todo: add a general synth: pro6 style...2 oscillators with shapes cascading (saw, triangle, pulse) - detune control,
+// todo: this should be an engine with 2 oscillators with independent levels (pulse width modulation too?), detune and pitch shit of 1 octave up and down
