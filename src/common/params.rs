@@ -6,12 +6,14 @@ use anyhow::anyhow;
 use fundsp::audionode::Pipe;
 use fundsp::follow::Follow;
 use fundsp::prelude64::{
-    An, AudioUnit, Net, U1, U2, Unit, Var, join, pass, poly_saw, poly_square, pulse, sine,
-    triangle, unit,
+    An, AudioUnit, Net, U1, U2, Unit, Var, Wave, WaveSynth, Wavetable, join, pass, poly_saw,
+    poly_square, pulse, sine, triangle, unit,
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 use toml::Value;
 
 pub type CcAudioNode = An<Pipe<Var, Follow<f64>>>;
@@ -48,25 +50,25 @@ pub enum ParamType {
 }
 
 impl ParamType {
-    pub fn as_zero_to_one_f32(&self) -> Option<f32> {
+    pub fn as_zero_to_one_f32(&self) -> Result<f32, anyhow::Error> {
         match &self {
-            ParamType::U8(v) => Some(quantize_u8_to_01(*v.clamp(&0, &127))),
-            ParamType::Oscillator(_) => None,
-            ParamType::ADSR(_) => None,
-            ParamType::ZeroOneFloat(v) => Some(v.clamp(0.0, 1.0)),
-            ParamType::ZeroHundredFloat(v) => Some((*v / 100.0).clamp(0.0, 1.0)),
-            ParamType::Noise(_) => None,
+            ParamType::U8(v) => Ok(quantize_u8_to_01(*v)),
+            ParamType::Oscillator(_) => Err(anyhow!("ParamType::Oscillator has no numeric value!")),
+            ParamType::ADSR(_) => Err(anyhow!("ParamType::ADSR has no numeric value!")),
+            ParamType::ZeroOneFloat(v) => Ok(v.clamp(0.0, 1.0)),
+            ParamType::ZeroHundredFloat(v) => Ok((*v / 100.0).clamp(0.0, 1.0)),
+            ParamType::Noise(_) => Err(anyhow!("ParamType::Noise has no numeric value!")),
         }
     }
 
-    pub fn as_f32(&self) -> Option<f32> {
+    pub fn as_f32(&self) -> Result<f32, anyhow::Error> {
         match &self {
-            ParamType::U8(v) => Some(*v as f32),
-            ParamType::Oscillator(_) => None,
-            ParamType::ADSR(_) => None,
-            ParamType::ZeroOneFloat(v) => Some(v.clamp(0.0, 1.0)),
-            ParamType::ZeroHundredFloat(v) => Some(*v),
-            &&ParamType::Noise(_) => None,
+            ParamType::U8(v) => Ok(*v as f32),
+            ParamType::Oscillator(_) => Err(anyhow!("ParamType::Oscillator has no numeric value!")),
+            ParamType::ADSR(_) => Err(anyhow!("ParamType::ADSR has no numeric value!")),
+            ParamType::ZeroOneFloat(v) => Ok(v.clamp(0.0, 1.0)),
+            ParamType::ZeroHundredFloat(v) => Ok(*v),
+            ParamType::Noise(_) => Err(anyhow!("ParamType::Noise has no numeric value!")),
         }
     }
 
@@ -85,7 +87,8 @@ impl std::fmt::Display for ParamType {
             ParamType::Oscillator(s) => write!(f, "{}", s),
             ParamType::ZeroOneFloat(v) => write!(f, "{}", v),
             ParamType::ZeroHundredFloat(v) => write!(f, "{}", v),
-            _ => todo!(),
+            ParamType::ADSR(v) => write!(f, "{:?}", v),
+            ParamType::Noise(v) => write!(f, "{:?}", v),
         }
     }
 }
@@ -180,6 +183,9 @@ impl Parameterized {
             .as_oscillator_type()
             .map_err(|e| anyhow::anyhow!(e))
     }
+    pub fn get_noise_node_type(&self, name: &str) -> anyhow::Result<NoiseType> {
+        todo!()
+    }
 }
 
 pub trait ValuedParam {
@@ -227,7 +233,7 @@ where
                         *v = num as u8;
                     }
                 }
-                ParamType::Oscillator(s) => {
+                ParamType::Oscillator(s) | ParamType::Noise(s) => {
                     if let Some(str_val) = toml_value.as_str() {
                         *s = osc_string_to_cow(str_val);
                     }
@@ -237,11 +243,6 @@ where
                         for (idx, val) in new_array.iter().enumerate() {
                             array[idx] = val.as_float().unwrap_or(0.0) as f32;
                         }
-                    }
-                }
-                ParamType::Noise(s) => {
-                    if let Some(str_val) = toml_value.as_str() {
-                        *s = osc_string_to_cow(str_val);
                     }
                 }
             }
@@ -303,6 +304,7 @@ impl FromStr for OscillatorType {
             "pulse" => Ok(OscillatorType::Pulse),
             "square" => Ok(OscillatorType::Square),
             "none" => Ok(OscillatorType::None),
+            // assuming that other text is for wavetable path:
             file_path => Ok(OscillatorType::WaveTable(file_path.parse().unwrap())),
         }
     }
@@ -329,9 +331,19 @@ impl OscillatorType {
             OscillatorType::Pulse => to_mono_unit(Box::new(poly_square())),
             OscillatorType::Square => to_mono_unit(Box::new(poly_square())),
             OscillatorType::None => to_mono_unit(Box::new(sine() * 0.0)),
-            OscillatorType::WaveTable(_) => todo!(),
+            OscillatorType::WaveTable(s) => to_mono_unit(Self::path_to_wavetable_synth(s)),
         }
     }
+
+    fn path_to_wavetable_synth(path: &str) -> Box<An<WaveSynth<U1>>> {
+        let mut wav_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        wav_path.push(path);
+        let wave = Wave::load(wav_path).expect("Failed to load WAV file for wavetable synth!");
+        let wavetable = Wavetable::from_wave(20.0, 20000.0, 12.0, wave.channel(0));
+        let synth = WaveSynth::new(Arc::new(wavetable));
+        Box::new(An(synth))
+    }
+
     pub fn get_osc_node_pw(&self) -> An<Unit<U2, U1>> {
         // nullify the second value for osc that don't support pulse width
         let pw_sinker = (pass() | pass() * 0.0) >> join::<U2>();
@@ -347,6 +359,19 @@ impl OscillatorType {
             }
             OscillatorType::None => stereo_to_mono_unit(Box::new(pw_sinker >> sine() * 0.0)),
             _ => panic!("Type cannot accept any inputs - therefore cannot force it to receive "),
+        }
+    }
+}
+
+impl FromStr for NoiseType {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<NoiseType, &'static str> {
+        let lower = s.to_lowercase();
+        match lower.as_str() {
+            "white" => Ok(NoiseType::White),
+            "brown" => Ok(NoiseType::Brown),
+            "pink" => Ok(NoiseType::Pink),
+            _ => Err("Unrecognized noise type"),
         }
     }
 }
